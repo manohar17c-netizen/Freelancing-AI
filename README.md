@@ -416,3 +416,28 @@ Are you:
 * 🔵 Advanced (want scalable architecture design)
 
 Tell me your level, and I’ll build the next step exactly for you.
+
+---
+
+## Run Locally
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn main:app --reload
+```
+
+Open `http://127.0.0.1:8000/docs` to test endpoints interactively.
+
+## Automated Tests
+
+```bash
+pytest -q
+```
+
+The tests cover:
+- healthcheck endpoint
+- resume upload endpoint
+- job posting + ranking endpoint
+- error path when no resumes exist

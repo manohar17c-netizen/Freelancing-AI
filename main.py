@@ -33,6 +33,9 @@ class InMemoryCollection:
         scored.sort(key=lambda item: item["score"], reverse=True)
         return scored[:n_results]
 
+    def clear(self) -> None:
+        self._rows.clear()
+
 
 class JobPost(BaseModel):
     description: str = Field(..., min_length=10)
