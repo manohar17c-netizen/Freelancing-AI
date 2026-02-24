@@ -110,7 +110,7 @@ def landing_page() -> str:
       <div class="container">
         <header>
           <div class="logo"><span>Freelancing</span>AI</div>
-          <nav style="display:flex; gap:.8rem"><a style="text-decoration:none;color:var(--brand);font-weight:700" href="/auth/login?next=/ui/resume">Login</a><a style="text-decoration:none;color:var(--accent);font-weight:700" href="/auth/logout">Logout</a></nav>
+          <nav style="display:flex; gap:.8rem"><a style="text-decoration:none;color:var(--brand);font-weight:700" href="/auth/start/google?next=/ui/resume">Signup</a></nav>
         </header>
 
         <main class="hero">
@@ -118,7 +118,7 @@ def landing_page() -> str:
           <h1>Find expert freelancers or your next high-value contract.</h1>
           <p>A polished hiring experience built for speed: profile intake, AI ranking, and instant top-match recommendations for your project needs.</p>
           <div class="actions">
-            <a class="action primary" href="/auth/login?next=/ui/resume">I’m a Freelancer → Build My Profile</a>
+            <a class="action primary" href="/auth/start/google?next=/ui/resume">I’m a Freelancer → Sign up / Log in with Google</a>
             <a class="action" href="/ui/jobs">I’m Hiring → Post a Job</a>
           </div>
           <div class="grid">
@@ -137,7 +137,7 @@ def landing_page() -> str:
 def resume_page(request: Request):
     user = get_authenticated_user(request)
     if not user:
-        return RedirectResponse("/auth/login?next=/ui/resume", status_code=302)
+        return RedirectResponse("/auth/start/google?next=/ui/resume", status_code=302)
 
     user_name = user.get("name", "")
     user_email = user.get("email", "")
@@ -192,7 +192,7 @@ def resume_page(request: Request):
       <main class="container">
         <div class="topbar">
           <div class="brand"><span>Freelancing</span>AI</div>
-          <small>Signed in via {provider.title()} · <a href="/auth/logout">Logout</a></small>
+          <small>Signed in via {provider.title()} </small>
         </div>
         <section class="layout">
           <aside class="panel">
@@ -316,7 +316,7 @@ def jobs_page() -> str:
     <body>
       <main class="container">
         <div class="brand"><span>Freelancing</span>AI</div>
-        <p style="margin:.15rem 0 .85rem"><a href="/auth/login?next=/ui/resume">Freelancer Login</a> · <a href="/auth/logout">Logout</a></p>
+        <p style="margin:.15rem 0 .85rem"><a href="/auth/start/google?next=/ui/resume">Freelancer Signup / Login with Google</a> </p>
         <article class="card">
           <h1 style="margin-top:0">Post a job and match top freelancers</h1>
           <p style="color:var(--muted)">Describe your project and instantly receive ranked recommendations based on semantic fit, required skills, and experience.</p>

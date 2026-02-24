@@ -107,8 +107,7 @@ def _auth_theme_styles() -> str:
 
 def _build_login_page(next_url: str) -> str:
     safe_next = urllib.parse.quote(next_url, safe="/")
-    has_google = bool(os.getenv("GOOGLE_CLIENT_ID") and os.getenv("GOOGLE_CLIENT_SECRET"))
-    google_label = "Continue with Google (Real OAuth)" if has_google else "Continue with Google (Local Mock)"
+    google_label = "Continue with Google"
     return f"""
     <!DOCTYPE html>
     <html lang=\"en\">
@@ -122,10 +121,9 @@ def _build_login_page(next_url: str) -> str:
       <main class=\"card\">
         <div class=\"brand\"><span>Freelancing</span>AI</div>
         <h1>Sign in as a freelancer</h1>
-        <p>Use Google or Apple to continue. When Google OAuth credentials are configured, login is real-time with Google's authorization servers.</p>
+        <p>Continue with your Google account to sign up or log in. This uses real Google OAuth.</p>
         <div class=\"actions\">
           <a class=\"btn primary\" href=\"/auth/start/google?next={safe_next}\">{google_label}</a>
-          <a class=\"btn\" href=\"/auth/start/apple?next={safe_next}\">Continue with Apple</a>
         </div>
         <p class=\"meta\">Tip: set <code>GOOGLE_CLIENT_ID</code>, <code>GOOGLE_CLIENT_SECRET</code>, and optional <code>GOOGLE_REDIRECT_URI</code> for real Google sign-in.</p>
       </main>
@@ -223,13 +221,15 @@ def login_page(next: str = "/ui/resume") -> str:
 @auth_router.get("/start/{provider}")
 def start_login(provider: str, next: str = "/ui/resume"):
     provider = provider.lower()
-    if provider not in {"google", "apple"}:
+    if provider != "google":
         raise HTTPException(status_code=404, detail="Provider not supported")
 
     state = secrets.token_urlsafe(16)
     _pending_oauth_states[state] = {"provider": provider, "next": next}
 
-    if provider == "google" and os.getenv("GOOGLE_CLIENT_ID") and os.getenv("GOOGLE_CLIENT_SECRET"):
+    if provider == "google":
+        if not (os.getenv("GOOGLE_CLIENT_ID") and os.getenv("GOOGLE_CLIENT_SECRET")):
+            return HTMLResponse(_build_error_page("Google OAuth is not configured. Please set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET."), status_code=503)
         params = {
             "client_id": os.environ["GOOGLE_CLIENT_ID"],
             "redirect_uri": os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8000/auth/callback/google"),
@@ -259,7 +259,7 @@ def start_login(provider: str, next: str = "/ui/resume"):
 @auth_router.get("/mock-consent/{provider}", response_class=HTMLResponse)
 def mock_consent_page(provider: str, next: str = "/ui/resume") -> str:
     provider = provider.lower()
-    if provider not in {"google", "apple"}:
+    if provider != "apple":
         raise HTTPException(status_code=404, detail="Provider not supported")
     return _build_mock_provider_page(provider, next)
 
@@ -272,7 +272,7 @@ def mock_consent_submit(
     next: str = "/ui/resume",
 ):
     provider = provider.lower()
-    if provider not in {"google", "apple"}:
+    if provider != "apple":
         raise HTTPException(status_code=404, detail="Provider not supported")
 
     session_token = secrets.token_urlsafe(24)
@@ -296,7 +296,9 @@ def oauth_callback(provider: str, state: str = "", code: str = "", error: str = 
     resolved_name = name or f"{provider.title()} User"
     resolved_email = email or f"user@{provider}.login"
 
-    if provider == "google" and os.getenv("GOOGLE_CLIENT_ID") and os.getenv("GOOGLE_CLIENT_SECRET"):
+    if provider == "google":
+        if not (os.getenv("GOOGLE_CLIENT_ID") and os.getenv("GOOGLE_CLIENT_SECRET")):
+            return HTMLResponse(_build_error_page("Google OAuth is not configured. Please set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET."), status_code=503)
         if not code:
             return HTMLResponse(_build_error_page("Missing authorization code from Google callback."), status_code=400)
         try:
