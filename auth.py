@@ -121,7 +121,7 @@ def _build_login_page(next_url: str) -> str:
       <main class=\"card\">
         <div class=\"brand\"><span>Freelancing</span>AI</div>
         <h1>Sign in as a freelancer</h1>
-        <p>Continue with your Google account to sign up or log in. This uses real Google OAuth.</p>
+        <p>Continue with your Google account to sign up or log in. You will be redirected to Google, then back to resume onboarding.</p>
         <div class=\"actions\">
           <a class=\"btn primary\" href=\"/auth/start/google?next={safe_next}\">{google_label}</a>
         </div>
@@ -238,22 +238,9 @@ def start_login(provider: str, next: str = "/ui/resume"):
             "state": state,
             "access_type": "online",
             "include_granted_scopes": "true",
-            "prompt": "select_account",
         }
         return RedirectResponse("https://accounts.google.com/o/oauth2/v2/auth?" + urllib.parse.urlencode(params))
 
-    if provider == "apple" and os.getenv("APPLE_CLIENT_ID"):
-        params = {
-            "client_id": os.environ["APPLE_CLIENT_ID"],
-            "redirect_uri": os.getenv("APPLE_REDIRECT_URI", "http://localhost:8000/auth/callback/apple"),
-            "response_type": "code",
-            "scope": "name email",
-            "response_mode": "query",
-            "state": state,
-        }
-        return RedirectResponse("https://appleid.apple.com/auth/authorize?" + urllib.parse.urlencode(params))
-
-    return RedirectResponse(f"/auth/mock-consent/{provider}?next={urllib.parse.quote(next, safe='/')}")
 
 
 @auth_router.get("/mock-consent/{provider}", response_class=HTMLResponse)
