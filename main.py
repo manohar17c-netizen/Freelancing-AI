@@ -137,8 +137,8 @@ def freelancer_portal() -> str:
         <h1>Freelancing AI Talent Portal</h1>
         <p>Select a dedicated page for freelancer resume intake or client job posting and matching.</p>
         <div class="actions">
-          <a href="/ui/resume">Resume Intake Page</a>
-          <a href="/ui/jobs">Job Posting Page</a>
+          <a href="/ui/resume">I am a developer</a>
+          <a href="/ui/jobs">I need a developer</a>
         </div>
       </main>
     </body>
