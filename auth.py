@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 import os
 import secrets
 import urllib.parse
+import urllib.request
 from typing import Dict, Optional
 
 from fastapi import APIRouter, Form, HTTPException, Request
@@ -23,8 +25,90 @@ def get_authenticated_user(request: Request) -> Optional[Dict[str, str]]:
     return _user_sessions.get(token)
 
 
+def _auth_theme_styles() -> str:
+    return """
+      <style>
+        :root {
+          --bg:#f8f5ff;
+          --surface:#ffffff;
+          --surface-soft:#f5f0ff;
+          --text:#1e1534;
+          --muted:#6b5a8e;
+          --brand:#6d28d9;
+          --brand-strong:#5b21b6;
+          --warning:#b45309;
+          --border:#ddcdfb;
+        }
+        * { box-sizing:border-box; }
+        body {
+          margin:0;
+          min-height:100vh;
+          font-family: Inter, system-ui, sans-serif;
+          background:
+            radial-gradient(circle at 0% 0%, #efe7ff 0, transparent 40%),
+            radial-gradient(circle at 100% 100%, #ffe8d6 0, transparent 35%),
+            var(--bg);
+          color:var(--text);
+          display:grid;
+          place-items:center;
+          padding:1rem;
+        }
+        .card {
+          width:min(620px, 96vw);
+          background:var(--surface);
+          border:1px solid var(--border);
+          border-radius:18px;
+          padding:1.4rem;
+          box-shadow:0 14px 26px rgba(109,40,217,.11);
+        }
+        .brand { font-size:1.08rem; font-weight:800; margin:0 0 .5rem; }
+        .brand span { color:var(--brand); }
+        p { color:var(--muted); line-height:1.55; }
+        .actions { display:grid; gap:.75rem; margin-top:1rem; }
+        .btn {
+          text-decoration:none;
+          text-align:center;
+          border-radius:12px;
+          font-weight:800;
+          padding:.82rem;
+          border:1px solid var(--border);
+          color:var(--text);
+          background:var(--surface-soft);
+        }
+        .btn.primary {
+          background:linear-gradient(100deg,var(--brand),var(--brand-strong));
+          border-color:transparent;
+          color:#fff;
+        }
+        input {
+          width:100%;
+          margin-bottom:.8rem;
+          border-radius:10px;
+          padding:.7rem;
+          border:1px solid #ccb8f8;
+          background:var(--surface-soft);
+          color:var(--text);
+        }
+        button {
+          width:100%;
+          border:none;
+          border-radius:12px;
+          color:#fff;
+          font-weight:800;
+          padding:.8rem;
+          background:linear-gradient(100deg,var(--brand), var(--brand-strong));
+          cursor:pointer;
+        }
+        .meta { font-size:.88rem; color:var(--muted); }
+        .warn { color:var(--warning); font-weight:700; }
+      </style>
+    """
+
+
 def _build_login_page(next_url: str) -> str:
     safe_next = urllib.parse.quote(next_url, safe="/")
+    has_google = bool(os.getenv("GOOGLE_CLIENT_ID") and os.getenv("GOOGLE_CLIENT_SECRET"))
+    google_label = "Continue with Google (Real OAuth)" if has_google else "Continue with Google (Local Mock)"
     return f"""
     <!DOCTYPE html>
     <html lang=\"en\">
@@ -32,23 +116,18 @@ def _build_login_page(next_url: str) -> str:
       <meta charset=\"UTF-8\" />
       <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />
       <title>Developer Login</title>
-      <style>
-        body {{ font-family: Inter, system-ui, sans-serif; margin:0; min-height:100vh; display:grid; place-items:center; background:#020617; color:#f8fafc; }}
-        main {{ width:min(560px,92vw); background:#1e293b; border:1px solid #334155; border-radius:14px; padding:1.5rem; }}
-        h1 {{ margin-top:0; }}
-        p {{ color:#cbd5e1; }}
-        .actions {{ display:grid; gap:0.8rem; margin-top:1rem; }}
-        a {{ text-decoration:none; text-align:center; padding:0.8rem; border-radius:10px; font-weight:700; color:#082f49; background:linear-gradient(110deg, #0891b2, #22d3ee); }}
-      </style>
+      {_auth_theme_styles()}
     </head>
     <body>
-      <main>
-        <h1>Sign in as a developer</h1>
-        <p>Use Google or Apple to continue. Once signed in, you will be redirected to resume upload.</p>
+      <main class=\"card\">
+        <div class=\"brand\"><span>Freelancing</span>AI</div>
+        <h1>Sign in as a freelancer</h1>
+        <p>Use Google or Apple to continue. When Google OAuth credentials are configured, login is real-time with Google's authorization servers.</p>
         <div class=\"actions\">
-          <a href=\"/auth/start/google?next={safe_next}\">Continue with Google</a>
-          <a href=\"/auth/start/apple?next={safe_next}\">Continue with Apple</a>
+          <a class=\"btn primary\" href=\"/auth/start/google?next={safe_next}\">{google_label}</a>
+          <a class=\"btn\" href=\"/auth/start/apple?next={safe_next}\">Continue with Apple</a>
         </div>
+        <p class=\"meta\">Tip: set <code>GOOGLE_CLIENT_ID</code>, <code>GOOGLE_CLIENT_SECRET</code>, and optional <code>GOOGLE_REDIRECT_URI</code> for real Google sign-in.</p>
       </main>
     </body>
     </html>
@@ -65,17 +144,13 @@ def _build_mock_provider_page(provider: str, next_url: str) -> str:
       <meta charset=\"UTF-8\" />
       <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />
       <title>{pretty} Login</title>
-      <style>
-        body {{ font-family: Inter, system-ui, sans-serif; margin:0; min-height:100vh; display:grid; place-items:center; background:#020617; color:#f8fafc; }}
-        main {{ width:min(560px,92vw); background:#1e293b; border:1px solid #334155; border-radius:14px; padding:1.5rem; }}
-        input {{ width:100%; margin-bottom:0.8rem; border-radius:8px; padding:0.65rem; background:#334155; border:1px solid #475569; color:#f8fafc; box-sizing:border-box; }}
-        button {{ width:100%; padding:0.8rem; border:none; border-radius:10px; font-weight:700; cursor:pointer; color:#082f49; background:linear-gradient(110deg,#0891b2,#22d3ee); }}
-      </style>
+      {_auth_theme_styles()}
     </head>
     <body>
-      <main>
+      <main class=\"card\">
+        <div class=\"brand\"><span>Freelancing</span>AI</div>
         <h1>{pretty} Sign-in (Local Mock)</h1>
-        <p>No OAuth keys configured, so this local consent screen simulates provider authentication.</p>
+        <p>OAuth keys are not configured for this provider, so this local consent screen simulates authentication.</p>
         <form method=\"post\" action=\"/auth/mock-consent/{provider}?next={safe_next}\">
           <input name=\"name\" placeholder=\"Your full name\" required />
           <input name=\"email\" type=\"email\" placeholder=\"you@example.com\" required />
@@ -85,6 +160,59 @@ def _build_mock_provider_page(provider: str, next_url: str) -> str:
     </body>
     </html>
     """
+
+
+def _build_error_page(message: str) -> str:
+    return f"""
+    <!DOCTYPE html>
+    <html lang=\"en\">
+    <head>
+      <meta charset=\"UTF-8\" />
+      <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />
+      <title>Authentication Error</title>
+      {_auth_theme_styles()}
+    </head>
+    <body>
+      <main class=\"card\">
+        <div class=\"brand\"><span>Freelancing</span>AI</div>
+        <h1>Authentication issue</h1>
+        <p class=\"warn\">{message}</p>
+        <div class=\"actions"><a class=\"btn primary\" href=\"/auth/login\">Try again</a></div>
+      </main>
+    </body>
+    </html>
+    """
+
+
+def _exchange_google_code_for_token(code: str) -> Dict[str, str]:
+    redirect_uri = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8000/auth/callback/google")
+    payload = urllib.parse.urlencode(
+        {
+            "code": code,
+            "client_id": os.environ["GOOGLE_CLIENT_ID"],
+            "client_secret": os.environ["GOOGLE_CLIENT_SECRET"],
+            "redirect_uri": redirect_uri,
+            "grant_type": "authorization_code",
+        }
+    ).encode("utf-8")
+
+    request = urllib.request.Request(
+        "https://oauth2.googleapis.com/token",
+        data=payload,
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=12) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _fetch_google_user_info(access_token: str) -> Dict[str, str]:
+    request = urllib.request.Request(
+        "https://openidconnect.googleapis.com/v1/userinfo",
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+    with urllib.request.urlopen(request, timeout=12) as response:
+        return json.loads(response.read().decode("utf-8"))
 
 
 @auth_router.get("/login", response_class=HTMLResponse)
@@ -101,13 +229,16 @@ def start_login(provider: str, next: str = "/ui/resume"):
     state = secrets.token_urlsafe(16)
     _pending_oauth_states[state] = {"provider": provider, "next": next}
 
-    if provider == "google" and os.getenv("GOOGLE_CLIENT_ID"):
+    if provider == "google" and os.getenv("GOOGLE_CLIENT_ID") and os.getenv("GOOGLE_CLIENT_SECRET"):
         params = {
             "client_id": os.environ["GOOGLE_CLIENT_ID"],
             "redirect_uri": os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8000/auth/callback/google"),
             "response_type": "code",
             "scope": "openid email profile",
             "state": state,
+            "access_type": "online",
+            "include_granted_scopes": "true",
+            "prompt": "select_account",
         }
         return RedirectResponse("https://accounts.google.com/o/oauth2/v2/auth?" + urllib.parse.urlencode(params))
 
@@ -152,20 +283,47 @@ def mock_consent_submit(
     return response
 
 
-@auth_router.get("/callback/{provider}")
-def oauth_callback(provider: str, state: str = "", email: str = "", name: str = ""):
+@auth_router.get("/callback/{provider}", response_class=HTMLResponse)
+def oauth_callback(provider: str, state: str = "", code: str = "", error: str = "", email: str = "", name: str = ""):
     provider = provider.lower()
     pending = _pending_oauth_states.pop(state, None)
     if provider not in {"google", "apple"} or not pending:
         raise HTTPException(status_code=400, detail="Invalid OAuth callback")
 
+    if error:
+        return HTMLResponse(_build_error_page(f"Provider returned error: {error}"), status_code=400)
+
+    resolved_name = name or f"{provider.title()} User"
+    resolved_email = email or f"user@{provider}.login"
+
+    if provider == "google" and os.getenv("GOOGLE_CLIENT_ID") and os.getenv("GOOGLE_CLIENT_SECRET"):
+        if not code:
+            return HTMLResponse(_build_error_page("Missing authorization code from Google callback."), status_code=400)
+        try:
+            token_payload = _exchange_google_code_for_token(code)
+            access_token = token_payload.get("access_token", "")
+            if not access_token:
+                return HTMLResponse(_build_error_page("Google token exchange failed: no access token."), status_code=400)
+            profile = _fetch_google_user_info(access_token)
+            resolved_name = profile.get("name", resolved_name)
+            resolved_email = profile.get("email", resolved_email)
+        except Exception as exc:  # pragma: no cover
+            return HTMLResponse(_build_error_page(f"Google sign-in failed: {exc}"), status_code=400)
+
     session_token = secrets.token_urlsafe(24)
     _user_sessions[session_token] = {
-        "name": name or f"{provider.title()} User",
-        "email": email or f"user@{provider}.login",
+        "name": resolved_name,
+        "email": resolved_email,
         "provider": provider,
     }
 
     response = RedirectResponse(pending["next"], status_code=302)
     response.set_cookie(AUTH_COOKIE, session_token, httponly=True, samesite="lax")
+    return response
+
+
+@auth_router.get("/logout")
+def logout() -> RedirectResponse:
+    response = RedirectResponse("/ui", status_code=302)
+    response.delete_cookie(AUTH_COOKIE)
     return response

@@ -110,7 +110,7 @@ def landing_page() -> str:
       <div class="container">
         <header>
           <div class="logo"><span>Freelancing</span>AI</div>
-          <strong style="color:var(--accent)">Smart hiring marketplace</strong>
+          <nav style="display:flex; gap:.8rem"><a style="text-decoration:none;color:var(--brand);font-weight:700" href="/auth/login?next=/ui/resume">Login</a><a style="text-decoration:none;color:var(--accent);font-weight:700" href="/auth/logout">Logout</a></nav>
         </header>
 
         <main class="hero">
@@ -192,7 +192,7 @@ def resume_page(request: Request):
       <main class="container">
         <div class="topbar">
           <div class="brand"><span>Freelancing</span>AI</div>
-          <small>Signed in via {provider.title()}</small>
+          <small>Signed in via {provider.title()} · <a href="/auth/logout">Logout</a></small>
         </div>
         <section class="layout">
           <aside class="panel">
@@ -316,6 +316,7 @@ def jobs_page() -> str:
     <body>
       <main class="container">
         <div class="brand"><span>Freelancing</span>AI</div>
+        <p style="margin:.15rem 0 .85rem"><a href="/auth/login?next=/ui/resume">Freelancer Login</a> · <a href="/auth/logout">Logout</a></p>
         <article class="card">
           <h1 style="margin-top:0">Post a job and match top freelancers</h1>
           <p style="color:var(--muted)">Describe your project and instantly receive ranked recommendations based on semantic fit, required skills, and experience.</p>
