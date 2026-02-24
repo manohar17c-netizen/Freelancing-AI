@@ -18,22 +18,116 @@ def landing_page() -> str:
       <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       <title>Freelancing AI Portal</title>
       <style>
-        :root { color-scheme: dark; --bg:#0f172a; --surface:#1e293b; --text:#f8fafc; --accent:#22d3ee; }
-        body { font-family: Inter, system-ui, sans-serif; margin:0; min-height:100vh; background:linear-gradient(160deg,var(--bg),#020617); color:var(--text); display:grid; place-items:center; }
-        main { width:min(760px,92vw); background:rgba(30,41,59,.9); border:1px solid rgba(148,163,184,.25); border-radius:16px; padding:2rem; }
-        .actions { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:1rem; margin-top:1.2rem; }
-        a { text-decoration:none; text-align:center; font-weight:700; color:#082f49; background:linear-gradient(110deg,#0891b2,var(--accent)); padding:.9rem; border-radius:10px; }
+        :root {
+          --bg:#f8f5ff;
+          --surface:#ffffff;
+          --surface-alt:#f1eafe;
+          --text:#1e1534;
+          --muted:#6b5a8e;
+          --brand:#6d28d9;
+          --brand-strong:#5b21b6;
+          --accent:#f97316;
+          --border:#dfd1fb;
+        }
+        * { box-sizing:border-box; }
+        body {
+          margin:0;
+          font-family: Inter, system-ui, -apple-system, sans-serif;
+          color:var(--text);
+          background:
+            radial-gradient(circle at 0% 0%, #efe7ff 0, transparent 40%),
+            radial-gradient(circle at 100% 100%, #ffe8d6 0, transparent 35%),
+            var(--bg);
+        }
+        .container { width:min(1120px, 92vw); margin:0 auto; }
+        header {
+          padding:1.2rem 0;
+          display:flex;
+          justify-content:space-between;
+          align-items:center;
+        }
+        .logo { font-weight:800; font-size:1.15rem; }
+        .logo span { color:var(--brand); }
+        .hero {
+          margin:1rem auto 3rem;
+          border:1px solid var(--border);
+          border-radius:24px;
+          padding:2.2rem;
+          background:linear-gradient(130deg, #ffffff 20%, #f3ebff 100%);
+          box-shadow:0 20px 40px rgba(109,40,217,.12);
+          display:grid;
+          gap:1rem;
+        }
+        .badge {
+          width:max-content;
+          padding:.35rem .8rem;
+          border-radius:999px;
+          background:var(--surface-alt);
+          color:var(--brand-strong);
+          font-weight:700;
+          font-size:.8rem;
+        }
+        h1 { margin:.3rem 0; font-size:clamp(1.8rem, 5vw, 3.2rem); }
+        p { color:var(--muted); max-width:62ch; line-height:1.55; }
+        .actions {
+          margin-top:.5rem;
+          display:grid;
+          grid-template-columns:repeat(auto-fit, minmax(240px, 1fr));
+          gap:1rem;
+        }
+        .action {
+          text-decoration:none;
+          border:1px solid var(--border);
+          border-radius:16px;
+          padding:1.1rem;
+          background:var(--surface);
+          color:var(--text);
+          font-weight:700;
+          transition:transform .2s ease, box-shadow .2s ease;
+        }
+        .action:hover { transform:translateY(-2px); box-shadow:0 10px 20px rgba(91,33,182,.15); }
+        .action.primary {
+          background:linear-gradient(100deg, var(--brand), var(--brand-strong));
+          color:#fff;
+          border-color:transparent;
+        }
+        .grid {
+          margin-top:1.4rem;
+          display:grid;
+          grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+          gap:.9rem;
+        }
+        .stat {
+          border:1px solid var(--border);
+          border-radius:14px;
+          padding:1rem;
+          background:#fff;
+        }
+        .stat b { font-size:1.25rem; display:block; color:var(--brand-strong); }
       </style>
     </head>
     <body>
-      <main>
-        <h1>Freelancing AI Talent Portal</h1>
-        <p>Choose the workflow that matches your role.</p>
-        <div class="actions">
-          <a href="/auth/login?next=/ui/resume">I am a developer</a>
-          <a href="/ui/jobs">I need a developer</a>
-        </div>
-      </main>
+      <div class="container">
+        <header>
+          <div class="logo"><span>Freelancing</span>AI</div>
+          <nav style="display:flex; gap:.8rem"><a style="text-decoration:none;color:var(--brand);font-weight:700" href="/auth/start/google?next=/ui/resume">Signup</a></nav>
+        </header>
+
+        <main class="hero">
+          <div class="badge">Marketplace makeover • Upwork-inspired</div>
+          <h1>Find expert freelancers or your next high-value contract.</h1>
+          <p>A polished hiring experience built for speed: profile intake, AI ranking, and instant top-match recommendations for your project needs.</p>
+          <div class="actions">
+            <a class="action primary" href="/auth/start/google?next=/ui/resume">I’m a Freelancer → Sign up / Log in with Google</a>
+            <a class="action" href="/ui/jobs">I’m Hiring → Post a Job</a>
+          </div>
+          <div class="grid">
+            <div class="stat"><b>10x</b><span>Faster talent discovery with AI ranking.</span></div>
+            <div class="stat"><b>Quality-first</b><span>Skill + experience weighted matching.</span></div>
+            <div class="stat"><b>Simple flow</b><span>Upload resume and get discovered quickly.</span></div>
+          </div>
+        </main>
+      </div>
     </body>
     </html>
     """
@@ -43,7 +137,7 @@ def landing_page() -> str:
 def resume_page(request: Request):
     user = get_authenticated_user(request)
     if not user:
-        return RedirectResponse("/auth/login?next=/ui/resume", status_code=302)
+        return RedirectResponse("/auth/start/google?next=/ui/resume", status_code=302)
 
     user_name = user.get("name", "")
     user_email = user.get("email", "")
@@ -55,49 +149,90 @@ def resume_page(request: Request):
     <head>
       <meta charset="UTF-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-      <title>Developer Resume Intake</title>
+      <title>Freelancer Profile Intake</title>
       <style>
-        :root {{ color-scheme: dark; --bg:#0f172a; --surface:#1e293b; --surface-soft:#334155; --text:#f8fafc; --accent:#22d3ee; --success:#22c55e; --warning:#f59e0b; }}
-        body {{ font-family: Inter, system-ui, sans-serif; margin:0; background:linear-gradient(160deg,var(--bg),#020617); color:var(--text); min-height:100vh; }}
-        .container {{ max-width:1024px; margin:0 auto; padding:2rem 1rem 4rem; }}
-        .card {{ background:rgba(30,41,59,.9); border-radius:14px; padding:1rem; border:1px solid rgba(148,163,184,.3); }}
-        input, textarea {{ width:100%; border-radius:8px; border:1px solid #475569; background:var(--surface-soft); color:var(--text); padding:.65rem; margin-bottom:.8rem; box-sizing:border-box; }}
-        button {{ width:100%; background:linear-gradient(110deg,#0891b2,var(--accent)); color:#082f49; border:none; border-radius:10px; font-weight:700; padding:.65rem; cursor:pointer; }}
-        .message {{ min-height:1.1rem; margin-top:.45rem; }}
+        :root {{
+          --bg:#f8f5ff;
+          --surface:#ffffff;
+          --surface-soft:#f5f0ff;
+          --text:#1e1534;
+          --muted:#6b5a8e;
+          --brand:#6d28d9;
+          --brand-strong:#5b21b6;
+          --success:#0f9d58;
+          --warning:#b45309;
+          --border:#ddcdfb;
+        }}
+        * {{ box-sizing:border-box; }}
+        body {{ margin:0; font-family: Inter, system-ui, sans-serif; background:var(--bg); color:var(--text); }}
+        .container {{ max-width:1080px; margin:0 auto; padding:1.4rem 1rem 3rem; }}
+        .topbar {{ display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; }}
+        .brand {{ font-size:1.05rem; font-weight:800; }}
+        .brand span {{ color:var(--brand); }}
+        .layout {{ display:grid; grid-template-columns:320px 1fr; gap:1rem; }}
+        .panel, .card {{ background:var(--surface); border:1px solid var(--border); border-radius:18px; }}
+        .panel {{ padding:1.1rem; }}
+        .panel p {{ color:var(--muted); line-height:1.45; }}
+        .card {{ padding:1.3rem; box-shadow:0 14px 24px rgba(109,40,217,.08); }}
+        input, textarea {{
+          width:100%; border-radius:10px; border:1px solid #ccb8f8; background:var(--surface-soft);
+          color:var(--text); padding:.7rem .8rem; margin:.35rem 0 .9rem; font-size:.95rem;
+        }}
+        label {{ font-weight:700; font-size:.9rem; }}
+        button {{
+          width:100%; border:none; border-radius:12px; color:#fff; font-weight:800; padding:.8rem;
+          background:linear-gradient(100deg,var(--brand), var(--brand-strong)); cursor:pointer;
+        }}
+        .message {{ min-height:1.1rem; margin-top:.55rem; font-weight:600; }}
         .success {{ color:var(--success); }} .warning {{ color:var(--warning); }}
+        @media (max-width:900px) {{ .layout {{ grid-template-columns:1fr; }} }}
       </style>
     </head>
     <body>
       <main class="container">
-        <h1>Developer Resume Intake</h1>
-        <p>Signed in via {provider.title()}. Complete your profile and upload your resume.</p>
-        <article class="card">
-          <form id="freelancerForm">
-            <label for="name">Full name</label>
-            <input id="name" name="name" value="{user_name}" required />
+        <div class="topbar">
+          <div class="brand"><span>Freelancing</span>AI</div>
+          <small>Signed in via {provider.title()} </small>
+        </div>
+        <section class="layout">
+          <aside class="panel">
+            <h2 style="margin-top:0">Create a standout profile</h2>
+            <p>Complete your details so clients can discover and hire you faster. Your resume text and profile are ranked by skill fit + relevant experience.</p>
+            <ul>
+              <li>Use a clear headline</li>
+              <li>Add key skills clients search for</li>
+              <li>Upload a readable .txt resume</li>
+            </ul>
+          </aside>
+          <article class="card">
+            <h1 style="margin-top:0">Freelancer onboarding</h1>
+            <form id="freelancerForm">
+              <label for="name">Full name</label>
+              <input id="name" name="name" value="{user_name}" required />
 
-            <label for="email">Email</label>
-            <input id="email" name="email" type="email" value="{user_email}" required />
+              <label for="email">Email</label>
+              <input id="email" name="email" type="email" value="{user_email}" required />
 
-            <label for="headline">Role / Headline</label>
-            <input id="headline" name="headline" placeholder="Backend Python Developer" required />
+              <label for="headline">Role / Headline</label>
+              <input id="headline" name="headline" placeholder="Senior Backend Engineer" required />
 
-            <label for="experience">Experience years</label>
-            <input id="experience" name="experience_years" type="number" min="0" value="0" required />
+              <label for="experience">Experience years</label>
+              <input id="experience" name="experience_years" type="number" min="0" value="0" required />
 
-            <label for="skills">Skills (comma-separated)</label>
-            <input id="skills" name="skills" placeholder="python, fastapi, docker" />
+              <label for="skills">Skills (comma-separated)</label>
+              <input id="skills" name="skills" placeholder="python, fastapi, docker" />
 
-            <label for="bio">Short bio</label>
-            <textarea id="bio" name="bio" rows="3"></textarea>
+              <label for="bio">Short bio</label>
+              <textarea id="bio" name="bio" rows="3"></textarea>
 
-            <label for="resume">Resume (.txt)</label>
-            <input id="resume" name="resume" type="file" accept=".txt" required />
+              <label for="resume">Resume (.txt)</label>
+              <input id="resume" name="resume" type="file" accept=".txt" required />
 
-            <button type="submit">Upload Resume & Register</button>
-            <p id="registerMessage" class="message"></p>
-          </form>
-        </article>
+              <button type="submit">Upload Resume & Register</button>
+              <p id="registerMessage" class="message"></p>
+            </form>
+          </article>
+        </section>
       </main>
       <script>
         const registerMessage = document.getElementById('registerMessage');
@@ -142,24 +277,49 @@ def jobs_page() -> str:
     <head>
       <meta charset="UTF-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-      <title>Freelancing AI Job Posting</title>
+      <title>Client Job Posting</title>
       <style>
-        :root { color-scheme: dark; --bg:#0f172a; --surface:#1e293b; --surface-soft:#334155; --text:#f8fafc; --accent:#22d3ee; --success:#22c55e; --warning:#f59e0b; }
-        body { font-family: Inter, system-ui, sans-serif; margin:0; background:linear-gradient(160deg,var(--bg),#020617); color:var(--text); min-height:100vh; }
-        .container { max-width:1024px; margin:0 auto; padding:2rem 1rem 4rem; }
-        .card { background:rgba(30,41,59,.9); border-radius:14px; padding:1rem; border:1px solid rgba(148,163,184,.3); }
-        input, textarea { width:100%; border-radius:8px; border:1px solid #475569; background:var(--surface-soft); color:var(--text); padding:.65rem; margin-bottom:.8rem; box-sizing:border-box; }
-        button { width:100%; background:linear-gradient(110deg,#0891b2,var(--accent)); color:#082f49; border:none; border-radius:10px; font-weight:700; padding:.65rem; cursor:pointer; }
-        .message { font-size:.9rem; min-height:1.1rem; margin-top:.45rem; }
+        :root {
+          --bg:#f8f5ff;
+          --surface:#ffffff;
+          --surface-soft:#f5f0ff;
+          --text:#1e1534;
+          --muted:#6b5a8e;
+          --brand:#6d28d9;
+          --brand-strong:#5b21b6;
+          --success:#0f9d58;
+          --warning:#b45309;
+          --border:#ddcdfb;
+        }
+        * { box-sizing:border-box; }
+        body { margin:0; font-family: Inter, system-ui, sans-serif; background:var(--bg); color:var(--text); }
+        .container { max-width:1080px; margin:0 auto; padding:1.4rem 1rem 3rem; }
+        .brand { font-size:1.05rem; font-weight:800; margin-bottom:1rem; }
+        .brand span { color:var(--brand); }
+        .card { background:var(--surface); border:1px solid var(--border); border-radius:18px; padding:1.3rem; box-shadow:0 14px 24px rgba(109,40,217,.08); }
+        input, textarea {
+          width:100%; border-radius:10px; border:1px solid #ccb8f8; background:var(--surface-soft);
+          color:var(--text); padding:.7rem .8rem; margin:.35rem 0 .9rem; font-size:.95rem;
+        }
+        label { font-weight:700; font-size:.9rem; }
+        button {
+          width:100%; border:none; border-radius:12px; color:#fff; font-weight:800; padding:.8rem;
+          background:linear-gradient(100deg,var(--brand), var(--brand-strong)); cursor:pointer;
+        }
+        .message { font-size:.9rem; min-height:1.1rem; margin-top:.5rem; font-weight:600; }
         .success { color:var(--success); } .warning { color:var(--warning); }
-        table { width:100%; border-collapse:collapse; margin-top:.9rem; font-size:.9rem; }
-        th, td { border-bottom:1px solid #334155; text-align:left; padding:.45rem; }
+        table { width:100%; border-collapse:collapse; margin-top:.95rem; font-size:.92rem; border:1px solid var(--border); border-radius:10px; overflow:hidden; }
+        th, td { border-bottom:1px solid #e5dafc; text-align:left; padding:.58rem; }
+        thead { background:#f0e8ff; }
       </style>
     </head>
     <body>
       <main class="container">
-        <h1>Client Job Posting</h1>
+        <div class="brand"><span>Freelancing</span>AI</div>
+        <p style="margin:.15rem 0 .85rem"><a href="/auth/start/google?next=/ui/resume">Freelancer Signup / Login with Google</a> </p>
         <article class="card">
+          <h1 style="margin-top:0">Post a job and match top freelancers</h1>
+          <p style="color:var(--muted)">Describe your project and instantly receive ranked recommendations based on semantic fit, required skills, and experience.</p>
           <form id="jobForm">
             <label for="description">Job description</label>
             <textarea id="description" name="description" rows="4" minlength="10" required></textarea>
