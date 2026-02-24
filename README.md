@@ -424,12 +424,10 @@ Tell me your level, and I’ll build the next step exactly for you.
 ### macOS / Linux / Windows (single script)
 
 ```bash
-python scripts/setup.py
+bash scripts/setup.sh
 ```
 
-(or `python3 scripts/setup.py` on macOS/Linux)
-
-This single script uses OS `if` branches internally to:
+This single shell script uses OS `if` branches internally to:
 1. Create `.venv`
 2. Install dependencies
 3. Start the FastAPI app on `http://127.0.0.1:8000`
