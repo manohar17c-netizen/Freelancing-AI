@@ -1,5 +1,23 @@
 # Freelancing-AI
 
+
+## Google OAuth end-to-end setup (for this FastAPI app)
+
+1. Create OAuth credentials in Google Cloud Console (OAuth client type: Web application).
+2. Add your redirect URI exactly (example: `http://127.0.0.1:8000/auth/callback/google`).
+3. Export environment variables before running the app:
+
+```bash
+export GOOGLE_CLIENT_ID="your-client-id"
+export GOOGLE_CLIENT_SECRET="your-client-secret"
+export GOOGLE_REDIRECT_URI="http://127.0.0.1:8000/auth/callback/google"
+```
+
+4. Verify app-side config at `GET /auth/config` (all booleans should indicate ready).
+5. Click the Google CTA in `/ui` and complete auth. You should be redirected back to `/ui/resume`.
+
+---
+
 Excellent.
 
 Now you're thinking like someone building a **real AI marketplace system** (like Upwork + LinkedIn + AI matching engine).

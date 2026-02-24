@@ -7,7 +7,7 @@ import urllib.parse
 import urllib.request
 from typing import Dict, Optional
 
-from fastapi import APIRouter, Form, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 AUTH_COOKIE = "freelancing_auth"
@@ -54,7 +54,7 @@ def _auth_theme_styles() -> str:
           padding:1rem;
         }
         .card {
-          width:min(620px, 96vw);
+          width:min(700px, 96vw);
           background:var(--surface);
           border:1px solid var(--border);
           border-radius:18px;
@@ -80,34 +80,25 @@ def _auth_theme_styles() -> str:
           border-color:transparent;
           color:#fff;
         }
-        input {
-          width:100%;
-          margin-bottom:.8rem;
-          border-radius:10px;
-          padding:.7rem;
-          border:1px solid #ccb8f8;
-          background:var(--surface-soft);
-          color:var(--text);
-        }
-        button {
-          width:100%;
-          border:none;
-          border-radius:12px;
-          color:#fff;
-          font-weight:800;
-          padding:.8rem;
-          background:linear-gradient(100deg,var(--brand), var(--brand-strong));
-          cursor:pointer;
-        }
         .meta { font-size:.88rem; color:var(--muted); }
         .warn { color:var(--warning); font-weight:700; }
       </style>
     """
 
 
+def _google_oauth_configured() -> bool:
+    return bool(os.getenv("GOOGLE_CLIENT_ID") and os.getenv("GOOGLE_CLIENT_SECRET"))
+
+
+def _google_redirect_uri(request: Request) -> str:
+    configured = os.getenv("GOOGLE_REDIRECT_URI")
+    if configured:
+        return configured
+    return str(request.url_for("oauth_callback", provider="google"))
+
+
 def _build_login_page(next_url: str) -> str:
     safe_next = urllib.parse.quote(next_url, safe="/")
-    google_label = "Continue with Google"
     return f"""
     <!DOCTYPE html>
     <html lang=\"en\">
@@ -121,39 +112,11 @@ def _build_login_page(next_url: str) -> str:
       <main class=\"card\">
         <div class=\"brand\"><span>Freelancing</span>AI</div>
         <h1>Sign in as a freelancer</h1>
-        <p>Continue with your Google account to sign up or log in. You will be redirected to Google, then back to resume onboarding.</p>
+        <p>Continue with your Google account. You will be redirected to Google and returned to resume onboarding.</p>
         <div class=\"actions\">
-          <a class=\"btn primary\" href=\"/auth/start/google?next={safe_next}\">{google_label}</a>
+          <a class=\"btn primary\" href=\"/auth/start/google?next={safe_next}\">Continue with Google</a>
         </div>
-        <p class=\"meta\">Tip: set <code>GOOGLE_CLIENT_ID</code>, <code>GOOGLE_CLIENT_SECRET</code>, and optional <code>GOOGLE_REDIRECT_URI</code> for real Google sign-in.</p>
-      </main>
-    </body>
-    </html>
-    """
-
-
-def _build_mock_provider_page(provider: str, next_url: str) -> str:
-    safe_next = urllib.parse.quote(next_url, safe="/")
-    pretty = provider.capitalize()
-    return f"""
-    <!DOCTYPE html>
-    <html lang=\"en\">
-    <head>
-      <meta charset=\"UTF-8\" />
-      <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />
-      <title>{pretty} Login</title>
-      {_auth_theme_styles()}
-    </head>
-    <body>
-      <main class=\"card\">
-        <div class=\"brand\"><span>Freelancing</span>AI</div>
-        <h1>{pretty} Sign-in (Local Mock)</h1>
-        <p>OAuth keys are not configured for this provider, so this local consent screen simulates authentication.</p>
-        <form method=\"post\" action=\"/auth/mock-consent/{provider}?next={safe_next}\">
-          <input name=\"name\" placeholder=\"Your full name\" required />
-          <input name=\"email\" type=\"email\" placeholder=\"you@example.com\" required />
-          <button type=\"submit\">Complete sign-in</button>
-        </form>
+        <p class=\"meta\">If login fails, open <code>/auth/config</code> and verify your OAuth setup.</p>
       </main>
     </body>
     </html>
@@ -175,15 +138,17 @@ def _build_error_page(message: str) -> str:
         <div class=\"brand\"><span>Freelancing</span>AI</div>
         <h1>Authentication issue</h1>
         <p class=\"warn\">{message}</p>
-        <div class=\"actions"><a class=\"btn primary\" href=\"/auth/login\">Try again</a></div>
+        <div class=\"actions">
+          <a class=\"btn primary\" href=\"/auth/login\">Try again</a>
+          <a class=\"btn\" href=\"/auth/config\">Open OAuth Config Check</a>
+        </div>
       </main>
     </body>
     </html>
     """
 
 
-def _exchange_google_code_for_token(code: str) -> Dict[str, str]:
-    redirect_uri = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8000/auth/callback/google")
+def _exchange_google_code_for_token(code: str, redirect_uri: str) -> Dict[str, str]:
     payload = urllib.parse.urlencode(
         {
             "code": code,
@@ -194,23 +159,34 @@ def _exchange_google_code_for_token(code: str) -> Dict[str, str]:
         }
     ).encode("utf-8")
 
-    request = urllib.request.Request(
+    req = urllib.request.Request(
         "https://oauth2.googleapis.com/token",
         data=payload,
         headers={"Content-Type": "application/x-www-form-urlencoded"},
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=12) as response:
+    with urllib.request.urlopen(req, timeout=12) as response:
         return json.loads(response.read().decode("utf-8"))
 
 
 def _fetch_google_user_info(access_token: str) -> Dict[str, str]:
-    request = urllib.request.Request(
+    req = urllib.request.Request(
         "https://openidconnect.googleapis.com/v1/userinfo",
         headers={"Authorization": f"Bearer {access_token}"},
     )
-    with urllib.request.urlopen(request, timeout=12) as response:
+    with urllib.request.urlopen(req, timeout=12) as response:
         return json.loads(response.read().decode("utf-8"))
+
+
+@auth_router.get("/config")
+def oauth_config_check(request: Request) -> Dict[str, str | bool]:
+    return {
+        "google_client_id_configured": bool(os.getenv("GOOGLE_CLIENT_ID")),
+        "google_client_secret_configured": bool(os.getenv("GOOGLE_CLIENT_SECRET")),
+        "google_oauth_ready": _google_oauth_configured(),
+        "google_redirect_uri_in_use": _google_redirect_uri(request),
+        "required_google_console_redirect_uri": _google_redirect_uri(request),
+    }
 
 
 @auth_router.get("/login", response_class=HTMLResponse)
@@ -219,92 +195,65 @@ def login_page(next: str = "/ui/resume") -> str:
 
 
 @auth_router.get("/start/{provider}")
-def start_login(provider: str, next: str = "/ui/resume"):
+def start_login(provider: str, request: Request, next: str = "/ui/resume"):
     provider = provider.lower()
     if provider != "google":
         raise HTTPException(status_code=404, detail="Provider not supported")
 
+    if not _google_oauth_configured():
+        return HTMLResponse(
+            _build_error_page("Google OAuth is not configured. Please set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET."),
+            status_code=503,
+        )
+
     state = secrets.token_urlsafe(16)
-    _pending_oauth_states[state] = {"provider": provider, "next": next}
+    redirect_uri = _google_redirect_uri(request)
+    _pending_oauth_states[state] = {"provider": provider, "next": next, "redirect_uri": redirect_uri}
 
-    if provider == "google":
-        if not (os.getenv("GOOGLE_CLIENT_ID") and os.getenv("GOOGLE_CLIENT_SECRET")):
-            return HTMLResponse(_build_error_page("Google OAuth is not configured. Please set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET."), status_code=503)
-        params = {
-            "client_id": os.environ["GOOGLE_CLIENT_ID"],
-            "redirect_uri": os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8000/auth/callback/google"),
-            "response_type": "code",
-            "scope": "openid email profile",
-            "state": state,
-            "access_type": "online",
-            "include_granted_scopes": "true",
-        }
-        return RedirectResponse("https://accounts.google.com/o/oauth2/v2/auth?" + urllib.parse.urlencode(params))
-
-
-
-@auth_router.get("/mock-consent/{provider}", response_class=HTMLResponse)
-def mock_consent_page(provider: str, next: str = "/ui/resume") -> str:
-    provider = provider.lower()
-    if provider != "apple":
-        raise HTTPException(status_code=404, detail="Provider not supported")
-    return _build_mock_provider_page(provider, next)
-
-
-@auth_router.post("/mock-consent/{provider}")
-def mock_consent_submit(
-    provider: str,
-    name: str = Form(...),
-    email: str = Form(...),
-    next: str = "/ui/resume",
-):
-    provider = provider.lower()
-    if provider != "apple":
-        raise HTTPException(status_code=404, detail="Provider not supported")
-
-    session_token = secrets.token_urlsafe(24)
-    _user_sessions[session_token] = {"name": name, "email": email, "provider": provider}
-
-    response = RedirectResponse(next, status_code=302)
-    response.set_cookie(AUTH_COOKIE, session_token, httponly=True, samesite="lax")
-    return response
+    params = {
+        "client_id": os.environ["GOOGLE_CLIENT_ID"],
+        "redirect_uri": redirect_uri,
+        "response_type": "code",
+        "scope": "openid email profile",
+        "state": state,
+        "access_type": "online",
+        "include_granted_scopes": "true",
+    }
+    return RedirectResponse("https://accounts.google.com/o/oauth2/v2/auth?" + urllib.parse.urlencode(params))
 
 
 @auth_router.get("/callback/{provider}", response_class=HTMLResponse)
-def oauth_callback(provider: str, state: str = "", code: str = "", error: str = "", email: str = "", name: str = ""):
+def oauth_callback(provider: str, state: str = "", code: str = "", error: str = ""):
     provider = provider.lower()
     pending = _pending_oauth_states.pop(state, None)
-    if provider not in {"google", "apple"} or not pending:
+    if provider != "google" or not pending:
         raise HTTPException(status_code=400, detail="Invalid OAuth callback")
 
     if error:
         return HTMLResponse(_build_error_page(f"Provider returned error: {error}"), status_code=400)
 
-    resolved_name = name or f"{provider.title()} User"
-    resolved_email = email or f"user@{provider}.login"
+    if not _google_oauth_configured():
+        return HTMLResponse(
+            _build_error_page("Google OAuth is not configured. Please set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET."),
+            status_code=503,
+        )
 
-    if provider == "google":
-        if not (os.getenv("GOOGLE_CLIENT_ID") and os.getenv("GOOGLE_CLIENT_SECRET")):
-            return HTMLResponse(_build_error_page("Google OAuth is not configured. Please set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET."), status_code=503)
-        if not code:
-            return HTMLResponse(_build_error_page("Missing authorization code from Google callback."), status_code=400)
-        try:
-            token_payload = _exchange_google_code_for_token(code)
-            access_token = token_payload.get("access_token", "")
-            if not access_token:
-                return HTMLResponse(_build_error_page("Google token exchange failed: no access token."), status_code=400)
-            profile = _fetch_google_user_info(access_token)
-            resolved_name = profile.get("name", resolved_name)
-            resolved_email = profile.get("email", resolved_email)
-        except Exception as exc:  # pragma: no cover
-            return HTMLResponse(_build_error_page(f"Google sign-in failed: {exc}"), status_code=400)
+    if not code:
+        return HTMLResponse(_build_error_page("Missing authorization code from Google callback."), status_code=400)
+
+    try:
+        token_payload = _exchange_google_code_for_token(code, pending["redirect_uri"])
+        access_token = token_payload.get("access_token", "")
+        if not access_token:
+            return HTMLResponse(_build_error_page("Google token exchange failed: no access token."), status_code=400)
+        profile = _fetch_google_user_info(access_token)
+        resolved_name = profile.get("name", "Google User")
+        resolved_email = profile.get("email", "user@google.login")
+    except Exception as exc:  # pragma: no cover
+        return HTMLResponse(_build_error_page(f"Google sign-in failed: {exc}"), status_code=400)
 
     session_token = secrets.token_urlsafe(24)
-    _user_sessions[session_token] = {
-        "name": resolved_name,
-        "email": resolved_email,
-        "provider": provider,
-    }
+    _user_sessions[session_token] = {"name": resolved_name, "email": resolved_email, "provider": provider}
 
     response = RedirectResponse(pending["next"], status_code=302)
     response.set_cookie(AUTH_COOKIE, session_token, httponly=True, samesite="lax")
