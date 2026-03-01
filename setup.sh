@@ -62,7 +62,7 @@ if missing:
     raise SystemExit(f"Missing required packages in venv: {missing}")
 PY
 
-"$VENV_PYTHON" -m uvicorn main:app --app-dir frontend/scripts --host 127.0.0.1 --port 8000 > "$LOG_FILE" 2>&1 &
+"$VENV_PYTHON" -m uvicorn main:app --app-dir backend/scripts --host 127.0.0.1 --port 8000 > "$LOG_FILE" 2>&1 &
 SERVER_PID=$!
 
 cleanup() {
@@ -87,7 +87,7 @@ if [[ "$healthy" -ne 1 ]]; then
   exit 1
 fi
 
-"$VENV_PYTHON" frontend/scripts/test_api.py
+"$VENV_PYTHON" backend/scripts/test_api.py
 
 echo ""
 echo "Setup + run + API test completed successfully."
@@ -95,10 +95,10 @@ if [[ "$IS_WINDOWS" -eq 1 ]]; then
   echo "To run manually later:"
   echo "  .venv\\Scripts\\activate"
   echo "  cd frontend && npm run build && cd .."
-  echo "  .venv\\Scripts\\python -m uvicorn main:app --app-dir frontend/scripts --reload --port 8000"
+  echo "  .venv\\Scripts\\python -m uvicorn main:app --app-dir backend/scripts --reload --port 8000"
 else
   echo "To run manually later:"
   echo "  source .venv/bin/activate"
   echo "  cd frontend && npm run build && cd .."
-  echo "  uvicorn main:app --app-dir frontend/scripts --reload --port 8000"
+  echo "  uvicorn main:app --app-dir backend/scripts --reload --port 8000"
 fi

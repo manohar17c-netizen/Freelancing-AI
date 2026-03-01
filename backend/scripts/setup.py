@@ -56,7 +56,7 @@ def main() -> None:
     log_file = Path(tempfile.gettempdir()) / "freelancing_ai_uvicorn.log"
     with log_file.open("w", encoding="utf-8") as log:
         process = subprocess.Popen(
-            [str(venv_python), "-m", "uvicorn", "main:app", "--app-dir", "frontend/scripts", "--host", "127.0.0.1", "--port", "8000"],
+            [str(venv_python), "-m", "uvicorn", "main:app", "--app-dir", "backend/scripts", "--host", "127.0.0.1", "--port", "8000"],
             cwd=ROOT_DIR,
             stdout=log,
             stderr=log,
@@ -66,17 +66,17 @@ def main() -> None:
         if not wait_for_health("http://127.0.0.1:8000/"):
             raise SystemExit(f"Server failed to start. Check log: {log_file}")
 
-        run([str(venv_python), "frontend/scripts/test_api.py"])
+        run([str(venv_python), "backend/scripts/test_api.py"])
 
         print("\nSetup + run + API test completed successfully.")
         if IS_WINDOWS:
             print("To run manually later:")
             print("  .venv\\Scripts\\Activate.ps1")
-            print("  uvicorn main:app --app-dir frontend/scripts --reload --port 8000")
+            print("  uvicorn main:app --app-dir backend/scripts --reload --port 8000")
         else:
             print("To run manually later:")
             print("  source .venv/bin/activate")
-            print("  uvicorn main:app --app-dir frontend/scripts --reload --port 8000")
+            print("  uvicorn main:app --app-dir backend/scripts --reload --port 8000")
     finally:
         process.terminate()
         try:

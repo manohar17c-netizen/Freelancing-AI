@@ -1,7 +1,7 @@
 import { defineConfig } from "vite";
 
-export default defineConfig({
-  base: "/ui/",
+export default defineConfig(({ command }) => ({
+  base: command === "serve" ? "/" : "/ui/",
   server: {
     host: "127.0.0.1",
     port: 5173,
@@ -17,4 +17,4 @@ export default defineConfig({
     outDir: "dist",
     emptyOutDir: true,
   },
-});
+}));

@@ -449,7 +449,7 @@ This single shell script uses OS `if` branches internally to:
 1. Create `.venv`
 2. Install dependencies
 3. Start the FastAPI app on `http://127.0.0.1:8000`
-4. Run automated API tests (`frontend/scripts/test_api.py`)
+4. Run automated API tests (`backend/scripts/test_api.py`)
 5. Stop the server
 
 ### React frontend setup
@@ -461,7 +461,7 @@ cd frontend
 npm install
 npm run build
 cd ..
-uvicorn main:app --app-dir frontend/scripts --reload --port 8000
+uvicorn main:app --app-dir backend/scripts --reload --port 8000
 ```
 
 Open:
@@ -472,7 +472,7 @@ For React dev mode (Vite + FastAPI):
 
 ```bash
 # terminal 1
-uvicorn main:app --app-dir frontend/scripts --reload --port 8000
+uvicorn main:app --app-dir backend/scripts --reload --port 8000
 
 # terminal 2
 cd frontend

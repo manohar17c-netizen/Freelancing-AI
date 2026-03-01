@@ -5,6 +5,7 @@ import os
 import secrets
 import urllib.parse
 import urllib.request
+from pathlib import Path
 from typing import Dict, Optional
 
 from fastapi import APIRouter, HTTPException, Request
@@ -16,6 +17,26 @@ auth_router = APIRouter(prefix="/auth", tags=["auth"])
 
 _user_sessions: Dict[str, Dict[str, str]] = {}
 _pending_oauth_states: Dict[str, Dict[str, str]] = {}
+
+
+def _load_env_file() -> None:
+    env_path = Path(__file__).resolve().parents[2] / ".env"
+    if not env_path.exists():
+        return
+
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip("'").strip('"')
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+_load_env_file()
 
 
 def get_authenticated_user(request: Request) -> Optional[Dict[str, str]]:

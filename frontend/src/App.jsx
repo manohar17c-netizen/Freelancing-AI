@@ -1,3 +1,4 @@
+import React from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import LandingPage from "./components/LandingPage";
 import JobsPage from "./components/JobsPage";

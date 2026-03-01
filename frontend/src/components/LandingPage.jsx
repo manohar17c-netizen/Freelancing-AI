@@ -1,3 +1,4 @@
+import React from "react";
 import { Link } from "react-router-dom";
 
 export default function LandingPage() {
@@ -8,9 +9,6 @@ export default function LandingPage() {
           <div className="logo">
             <span>Freelancing</span>AI
           </div>
-          <a className="text-link" href="/auth/start/google?next=/ui/resume">
-            Signup
-          </a>
         </header>
 
         <main className="hero">
@@ -21,11 +19,11 @@ export default function LandingPage() {
             recommendations for your project needs.
           </p>
           <div className="actions-grid">
-            <a className="action primary" href="/auth/start/google?next=/ui/resume">
-              I&apos;m a Freelancer - Sign up / Log in with Google
+            <a className="action primary" href="/auth/login?next=/ui/resume">
+              I&apos;m a Freelancer
             </a>
             <Link className="action" to="/jobs">
-              I&apos;m Hiring - Post a Job
+              I&apos;m Hiring
             </Link>
           </div>
           <div className="stats-grid">
