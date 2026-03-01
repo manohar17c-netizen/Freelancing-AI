@@ -11,36 +11,69 @@ on:
       - main
 
 jobs:
-  build:
+  build-backend:
     runs-on: ubuntu-latest
-
+    
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
-
+      
       - name: Setup Node
         uses: actions/setup-node@v3
         with:
           node-version: 18
-
-      - name: Install dependencies
-        run: npm install
-
-      - name: Run tests
-        run: npm test
+      
+      - name: Install backend dependencies
+        run: cd backend && npm install
+      
+      - name: Run backend tests
+        run: cd backend && npm test
+      
+      - name: Lint backend code
+        run: cd backend && npm run lint --if-present
+  
+  build-frontend:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Setup Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+      
+      - name: Install frontend dependencies
+        run: cd frontend && npm install
+      
+      - name: Run frontend tests
+        run: cd frontend && npm test
+      
+      - name: Build frontend
+        run: cd frontend && npm run build --if-present
+      
+      - name: Lint frontend code
+        run: cd frontend && npm run lint --if-present
 
   deploy-staging:
     if: github.ref == 'refs/heads/dev'
-    needs: build
+    needs: [build-backend, build-frontend]
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
       - name: Deploy to Staging
         run: echo "Deploying to staging server..."
 
   deploy-production:
     if: github.ref == 'refs/heads/main'
-    needs: build
+    needs: [build-backend, build-frontend]
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
       - name: Deploy to Production
         run: echo "Deploying to production server..."
