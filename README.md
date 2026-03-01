@@ -442,12 +442,12 @@ Tell me your level, and I’ll build the next step exactly for you.
 ### macOS / Linux / Windows (single script)
 
 ```bash
-bash scripts/setup.sh
+bash setup.sh
 ```
 
 This single shell script uses OS `if` branches internally to:
 1. Create `.venv`
 2. Install dependencies
 3. Start the FastAPI app on `http://127.0.0.1:8000`
-4. Run automated API tests (`scripts/test_api.py`)
+4. Run automated API tests (`frontend/scripts/test_api.py`)
 5. Stop the server

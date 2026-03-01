@@ -7,7 +7,7 @@ fi
 
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT_DIR"
 
 OS_NAME="$(uname -s 2>/dev/null || echo unknown)"
@@ -46,7 +46,7 @@ if missing:
     raise SystemExit(f"Missing required packages in venv: {missing}")
 PY
 
-"$VENV_PYTHON" -m uvicorn main:app --host 127.0.0.1 --port 8000 > "$LOG_FILE" 2>&1 &
+"$VENV_PYTHON" -m uvicorn main:app --app-dir frontend/scripts --host 127.0.0.1 --port 8000 > "$LOG_FILE" 2>&1 &
 SERVER_PID=$!
 
 cleanup() {
@@ -71,16 +71,16 @@ if [[ "$healthy" -ne 1 ]]; then
   exit 1
 fi
 
-"$VENV_PYTHON" scripts/test_api.py
+"$VENV_PYTHON" frontend/scripts/test_api.py
 
 echo ""
 echo "Setup + run + API test completed successfully."
 if [[ "$IS_WINDOWS" -eq 1 ]]; then
   echo "To run manually later:"
   echo "  .venv\\Scripts\\activate"
-  echo "  .venv\\Scripts\\python -m uvicorn main:app --reload --port 8000"
+  echo "  .venv\\Scripts\\python -m uvicorn main:app --app-dir frontend/scripts --reload --port 8000"
 else
   echo "To run manually later:"
   echo "  source .venv/bin/activate"
-  echo "  uvicorn main:app --reload --port 8000"
+  echo "  uvicorn main:app --app-dir frontend/scripts --reload --port 8000"
 fi
