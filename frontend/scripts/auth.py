@@ -189,6 +189,14 @@ def oauth_config_check(request: Request) -> Dict[str, str | bool]:
     }
 
 
+@auth_router.get("/me")
+def current_user(request: Request):
+    user = get_authenticated_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return {"authenticated": True, "user": user}
+
+
 @auth_router.get("/login", response_class=HTMLResponse)
 def login_page(next: str = "/ui/resume") -> str:
     return _build_login_page(next)

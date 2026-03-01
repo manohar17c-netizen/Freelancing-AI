@@ -32,11 +32,27 @@ if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
   exit 1
 fi
 
+if ! command -v npm >/dev/null 2>&1; then
+  echo "Error: npm not found. Install Node.js (which includes npm) first."
+  exit 1
+fi
+
 "$PYTHON_BIN" -m venv .venv --system-site-packages
 
 "$VENV_PYTHON" -m pip install --upgrade pip || true
 "$VENV_PYTHON" -m pip install fastapi uvicorn python-multipart requests || true
 "$VENV_PYTHON" -m pip install sentence-transformers || true
+
+(
+  cd frontend
+  npm install
+  npm run build
+)
+
+if [[ ! -f frontend/dist/index.html ]]; then
+  echo "Error: React build output missing at frontend/dist/index.html"
+  exit 1
+fi
 
 "$VENV_PYTHON" - <<'PY'
 import importlib.util
@@ -78,9 +94,11 @@ echo "Setup + run + API test completed successfully."
 if [[ "$IS_WINDOWS" -eq 1 ]]; then
   echo "To run manually later:"
   echo "  .venv\\Scripts\\activate"
+  echo "  cd frontend && npm run build && cd .."
   echo "  .venv\\Scripts\\python -m uvicorn main:app --app-dir frontend/scripts --reload --port 8000"
 else
   echo "To run manually later:"
   echo "  source .venv/bin/activate"
+  echo "  cd frontend && npm run build && cd .."
   echo "  uvicorn main:app --app-dir frontend/scripts --reload --port 8000"
 fi

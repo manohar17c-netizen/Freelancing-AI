@@ -451,3 +451,30 @@ This single shell script uses OS `if` branches internally to:
 3. Start the FastAPI app on `http://127.0.0.1:8000`
 4. Run automated API tests (`frontend/scripts/test_api.py`)
 5. Stop the server
+
+### React frontend setup
+
+The UI is now a React app under `frontend/` and is served by FastAPI from `/ui` after build.
+
+```bash
+cd frontend
+npm install
+npm run build
+cd ..
+uvicorn main:app --app-dir frontend/scripts --reload --port 8000
+```
+
+Open:
+- `http://127.0.0.1:8000/ui` for the React UI
+- `http://127.0.0.1:8000/docs` for API docs
+
+For React dev mode (Vite + FastAPI):
+
+```bash
+# terminal 1
+uvicorn main:app --app-dir frontend/scripts --reload --port 8000
+
+# terminal 2
+cd frontend
+npm run dev
+```
