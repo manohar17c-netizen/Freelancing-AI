@@ -8,6 +8,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
 from auth import auth_router
+from database import init_db, load_freelancer_records, upsert_freelancer_record
 from ui_routes import ui_router
 
 try:
@@ -76,6 +77,26 @@ resume_collection = InMemoryCollection()
 resume_metadata: Dict[str, Dict] = {}
 
 
+@app.on_event("startup")
+def initialize_persistence() -> None:
+    init_db()
+    for record in load_freelancer_records():
+        embedding = record.get("embedding") or embedder.encode([record["resume_text"]])[0]
+        resume_collection.add(
+            documents=[record["resume_text"]],
+            embeddings=[embedding],
+            ids=[record["resume_id"]],
+        )
+        resume_metadata[record["resume_id"]] = {
+            "name": record["name"],
+            "email": record["email"],
+            "headline": record["headline"],
+            "bio": record["bio"],
+            "experience_years": max(int(record["experience_years"]), 0),
+            "skills": sorted({skill.strip().lower() for skill in record["skills"] if isinstance(skill, str)}),
+        }
+
+
 @app.get("/")
 def healthcheck() -> Dict[str, str]:
     return {"status": "ok", "service": "Freelancing AI Matching API", "ui": "/ui"}
@@ -116,6 +137,18 @@ async def register_freelancer(
         "skills": merged_skills,
     }
 
+    upsert_freelancer_record(
+        resume_id=resume_id,
+        name=name,
+        email=email,
+        headline=headline,
+        bio=bio,
+        experience_years=resume_metadata[resume_id]["experience_years"],
+        skills=merged_skills,
+        resume_text=text,
+        embedding=embedding,
+    )
+
     return {
         "message": "Freelancer registered successfully",
         "resume_id": resume_id,
@@ -146,6 +179,18 @@ async def upload_resume(file: UploadFile = File(...)) -> Dict:
         "experience_years": _extract_experience_years(lowered),
         "skills": _extract_skills(lowered),
     }
+
+    upsert_freelancer_record(
+        resume_id=resume_id,
+        name=file.filename,
+        email="",
+        headline="Freelancer",
+        bio="",
+        experience_years=resume_metadata[resume_id]["experience_years"],
+        skills=resume_metadata[resume_id]["skills"],
+        resume_text=text,
+        embedding=embedding,
+    )
 
     return {"message": "Resume stored successfully", "resume_id": resume_id}
 
