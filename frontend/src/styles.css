@@ -228,6 +228,59 @@ thead {
   gap: 0.8rem;
 }
 
+.experience-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.8rem;
+}
+
+.upload-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.6rem;
+  align-items: center;
+}
+
+.upload-row input {
+  margin: 0;
+}
+
+.upload-btn {
+  width: auto;
+  margin: 0;
+  padding: 0.72rem 1rem;
+  white-space: nowrap;
+}
+
+.tabs-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin: 0.9rem 0 1rem;
+}
+
+.tab-btn {
+  width: auto;
+  margin: 0;
+  padding: 0.55rem 0.95rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: #f3ebff;
+  color: var(--text);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.tab-btn.active {
+  background: linear-gradient(100deg, var(--brand), var(--brand-strong));
+  color: #fff;
+  border-color: transparent;
+}
+
+.tab-content {
+  margin-top: 0.35rem;
+}
+
 @media (max-width: 900px) {
   .layout-grid {
     grid-template-columns: 1fr;
@@ -238,5 +291,13 @@ thead {
   .header {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .experience-row {
+    grid-template-columns: 1fr;
+  }
+
+  .upload-row {
+    grid-template-columns: 1fr;
   }
 }

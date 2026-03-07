@@ -1,5 +1,6 @@
 import React from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
+import FreelancerHome from "./components/FreelancerHome";
 import LandingPage from "./components/LandingPage";
 import JobsPage from "./components/JobsPage";
 import ResumePage from "./components/ResumePage";
@@ -9,6 +10,7 @@ export default function App() {
     <Routes>
       <Route path="/" element={<LandingPage />} />
       <Route path="/resume" element={<ResumePage />} />
+      <Route path="/freelancer/home" element={<FreelancerHome />} />
       <Route path="/jobs" element={<JobsPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

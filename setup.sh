@@ -40,7 +40,7 @@ fi
 "$PYTHON_BIN" -m venv .venv --system-site-packages
 
 "$VENV_PYTHON" -m pip install --upgrade pip || true
-"$VENV_PYTHON" -m pip install fastapi uvicorn python-multipart requests || true
+"$VENV_PYTHON" -m pip install fastapi uvicorn python-multipart requests certifi pypdf python-docx || true
 "$VENV_PYTHON" -m pip install sentence-transformers || true
 
 (
@@ -56,7 +56,7 @@ fi
 
 "$VENV_PYTHON" - <<'PY'
 import importlib.util
-required = ["fastapi", "uvicorn", "multipart", "requests"]
+required = ["fastapi", "uvicorn", "multipart", "requests", "certifi", "pypdf", "docx"]
 missing = [pkg for pkg in required if importlib.util.find_spec(pkg) is None]
 if missing:
     raise SystemExit(f"Missing required packages in venv: {missing}")

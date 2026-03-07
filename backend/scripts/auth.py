@@ -3,15 +3,18 @@ from __future__ import annotations
 import json
 import os
 import secrets
+import ssl
 import urllib.parse
 import urllib.request
 from pathlib import Path
+from urllib.error import HTTPError, URLError
 from typing import Dict, Optional
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 AUTH_COOKIE = "freelancing_auth"
+FREELANCER_INTAKE_PATH = "/ui/resume"
 
 auth_router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -38,12 +41,27 @@ def _load_env_file() -> None:
 
 _load_env_file()
 
+try:
+    import certifi
+except ImportError:  # pragma: no cover
+    certifi = None
+
 
 def get_authenticated_user(request: Request) -> Optional[Dict[str, str]]:
     token = request.cookies.get(AUTH_COOKIE)
     if not token:
         return None
     return _user_sessions.get(token)
+
+
+def _ssl_context() -> ssl.SSLContext:
+    if certifi is not None:
+        return ssl.create_default_context(cafile=certifi.where())
+    return ssl.create_default_context()
+
+
+def _urlopen(request: urllib.request.Request, timeout: int = 12):
+    return urllib.request.urlopen(request, timeout=timeout, context=_ssl_context())
 
 
 def _auth_theme_styles() -> str:
@@ -186,8 +204,14 @@ def _exchange_google_code_for_token(code: str, redirect_uri: str) -> Dict[str, s
         headers={"Content-Type": "application/x-www-form-urlencoded"},
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=12) as response:
-        return json.loads(response.read().decode("utf-8"))
+    try:
+        with _urlopen(req, timeout=12) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="ignore")
+        raise RuntimeError(f"token_exchange_failed: {exc.code} {body}") from exc
+    except URLError as exc:
+        raise RuntimeError(f"token_exchange_network_error: {exc}") from exc
 
 
 def _fetch_google_user_info(access_token: str) -> Dict[str, str]:
@@ -195,8 +219,14 @@ def _fetch_google_user_info(access_token: str) -> Dict[str, str]:
         "https://openidconnect.googleapis.com/v1/userinfo",
         headers={"Authorization": f"Bearer {access_token}"},
     )
-    with urllib.request.urlopen(req, timeout=12) as response:
-        return json.loads(response.read().decode("utf-8"))
+    try:
+        with _urlopen(req, timeout=12) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="ignore")
+        raise RuntimeError(f"userinfo_fetch_failed: {exc.code} {body}") from exc
+    except URLError as exc:
+        raise RuntimeError(f"userinfo_network_error: {exc}") from exc
 
 
 @auth_router.get("/config")
@@ -219,12 +249,13 @@ def current_user(request: Request):
 
 
 @auth_router.get("/login", response_class=HTMLResponse)
-def login_page(next: str = "/ui/resume") -> str:
-    return _build_login_page(next)
+def login_page(next: str = FREELANCER_INTAKE_PATH) -> str:
+    _ = next
+    return _build_login_page(FREELANCER_INTAKE_PATH)
 
 
 @auth_router.get("/start/{provider}")
-def start_login(provider: str, request: Request, next: str = "/ui/resume"):
+def start_login(provider: str, request: Request, next: str = FREELANCER_INTAKE_PATH):
     provider = provider.lower()
     if provider != "google":
         raise HTTPException(status_code=404, detail="Provider not supported")
@@ -237,7 +268,8 @@ def start_login(provider: str, request: Request, next: str = "/ui/resume"):
 
     state = secrets.token_urlsafe(16)
     redirect_uri = _google_redirect_uri(request)
-    _pending_oauth_states[state] = {"provider": provider, "next": next, "redirect_uri": redirect_uri}
+    _ = next
+    _pending_oauth_states[state] = {"provider": provider, "next": FREELANCER_INTAKE_PATH, "redirect_uri": redirect_uri}
 
     params = {
         "client_id": os.environ["GOOGLE_CLIENT_ID"],
@@ -252,11 +284,13 @@ def start_login(provider: str, request: Request, next: str = "/ui/resume"):
 
 
 @auth_router.get("/callback/{provider}", response_class=HTMLResponse)
-def oauth_callback(provider: str, state: str = "", code: str = "", error: str = ""):
+def oauth_callback(request: Request, provider: str, state: str = "", code: str = "", error: str = ""):
     provider = provider.lower()
     pending = _pending_oauth_states.pop(state, None)
-    if provider != "google" or not pending:
+    if provider != "google":
         raise HTTPException(status_code=400, detail="Invalid OAuth callback")
+    if not pending:
+        pending = {"provider": provider, "next": FREELANCER_INTAKE_PATH, "redirect_uri": _google_redirect_uri(request)}
 
     if error:
         return HTMLResponse(_build_error_page(f"Provider returned error: {error}"), status_code=400)
@@ -287,6 +321,11 @@ def oauth_callback(provider: str, state: str = "", code: str = "", error: str = 
     response = RedirectResponse(pending["next"], status_code=302)
     response.set_cookie(AUTH_COOKIE, session_token, httponly=True, samesite="lax")
     return response
+
+
+@auth_router.get("/{provider}/callback", response_class=HTMLResponse)
+def oauth_callback_compat(request: Request, provider: str, state: str = "", code: str = "", error: str = ""):
+    return oauth_callback(request=request, provider=provider, state=state, code=code, error=error)
 
 
 @auth_router.get("/logout")

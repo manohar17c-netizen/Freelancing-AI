@@ -1,27 +1,32 @@
 import React from "react";
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 const initialForm = {
   name: "",
   email: "",
   headline: "",
   experience_years: 0,
+  experience_months: 0,
   skills: "",
   bio: "",
 };
 
 export default function ResumePage() {
+  const backendBase = import.meta.env.DEV ? "http://127.0.0.1:8000" : "";
+  const navigate = useNavigate();
   const [form, setForm] = useState(initialForm);
   const [file, setFile] = useState(null);
+  const [resumeUploaded, setResumeUploaded] = useState(false);
   const [status, setStatus] = useState({ type: "", message: "" });
   const [authState, setAuthState] = useState({ loading: true, user: null });
 
   useEffect(() => {
     async function loadSession() {
       try {
-        const response = await fetch("/auth/me", { credentials: "include" });
+        const response = await fetch(`${backendBase}/auth/me`, { credentials: "include" });
         if (response.status === 401) {
-          window.location.href = "/auth/start/google?next=/ui/resume";
+          window.location.href = `${backendBase}/auth/login?next=/ui/resume`;
           return;
         }
 
@@ -50,10 +55,20 @@ export default function ResumePage() {
     setForm((prev) => ({ ...prev, [name]: value }));
   }
 
-  async function onSubmit(event) {
+  function onResumeUpload(event) {
     event.preventDefault();
     if (!file) {
-      setStatus({ type: "warning", message: "Please upload your resume file." });
+      setStatus({ type: "warning", message: "Please choose a resume file before uploading." });
+      return;
+    }
+    setResumeUploaded(true);
+    setStatus({ type: "success", message: `Resume ready: ${file.name}` });
+  }
+
+  async function onSubmit(event) {
+    event.preventDefault();
+    if (!file || !resumeUploaded) {
+      setStatus({ type: "warning", message: "Please upload your resume using the Upload Resume button first." });
       return;
     }
 
@@ -63,12 +78,13 @@ export default function ResumePage() {
     body.append("email", form.email);
     body.append("headline", form.headline);
     body.append("experience_years", String(form.experience_years));
+    body.append("experience_months", String(form.experience_months));
     body.append("skills", form.skills);
     body.append("bio", form.bio);
     body.append("file", file);
 
     try {
-      const response = await fetch("/freelancers/register", {
+      const response = await fetch(`${backendBase}/freelancers/register`, {
         method: "POST",
         body,
         credentials: "include",
@@ -80,16 +96,23 @@ export default function ResumePage() {
 
       setStatus({
         type: "success",
-        message: `Registered ${data.profile.name} (ID: ${data.resume_id})`,
+        message: data.warning
+          ? `Registered ${data.profile.name} (ID: ${data.resume_id}) with warning: ${data.warning}`
+          : `Registered ${data.profile.name} (ID: ${data.resume_id})`,
       });
       setFile(null);
+      setResumeUploaded(false);
       setForm((prev) => ({
         ...prev,
         headline: "",
         experience_years: 0,
+        experience_months: 0,
         skills: "",
         bio: "",
       }));
+      setTimeout(() => {
+        navigate("/freelancer/home");
+      }, 700);
     } catch (error) {
       setStatus({ type: "warning", message: error.message });
     }
@@ -116,7 +139,7 @@ export default function ResumePage() {
           </div>
           <div className="topbar-actions">
             <small>Signed in via {(authState.user?.provider || "provider").toUpperCase()}</small>
-            <a className="text-link" href="/auth/logout">
+            <a className="text-link" href={`${backendBase}/auth/logout`}>
               Logout
             </a>
           </div>
@@ -155,16 +178,33 @@ export default function ResumePage() {
                 required
               />
 
-              <label htmlFor="experience_years">Experience years</label>
-              <input
-                id="experience_years"
-                name="experience_years"
-                type="number"
-                min={0}
-                value={form.experience_years}
-                onChange={onChange}
-                required
-              />
+              <div className="experience-row">
+                <div>
+                  <label htmlFor="experience_years">Experience years</label>
+                  <input
+                    id="experience_years"
+                    name="experience_years"
+                    type="number"
+                    min={0}
+                    value={form.experience_years}
+                    onChange={onChange}
+                    required
+                  />
+                </div>
+                <div>
+                  <label htmlFor="experience_months">Experience months</label>
+                  <input
+                    id="experience_months"
+                    name="experience_months"
+                    type="number"
+                    min={0}
+                    max={11}
+                    value={form.experience_months}
+                    onChange={onChange}
+                    required
+                  />
+                </div>
+              </div>
 
               <label htmlFor="skills">Skills (comma-separated)</label>
               <input
@@ -178,17 +218,25 @@ export default function ResumePage() {
               <label htmlFor="bio">Short bio</label>
               <textarea id="bio" name="bio" rows={3} value={form.bio} onChange={onChange} />
 
-              <label htmlFor="resume">Resume (.txt)</label>
-              <input
-                id="resume"
-                name="resume"
-                type="file"
-                accept=".txt"
-                onChange={(event) => setFile(event.target.files?.[0] || null)}
-                required
-              />
+              <label htmlFor="resume">Resume (.txt, .pdf, .docx, .doc)</label>
+              <div className="upload-row">
+                <input
+                  id="resume"
+                  name="resume"
+                  type="file"
+                  accept=".txt,.pdf,.docx,.doc"
+                  onChange={(event) => {
+                    setFile(event.target.files?.[0] || null);
+                    setResumeUploaded(false);
+                  }}
+                  required
+                />
+                <button className="upload-btn" type="button" onClick={onResumeUpload}>
+                  Upload Resume
+                </button>
+              </div>
 
-              <button type="submit">Upload Resume & Register</button>
+              <button type="submit">Register</button>
               <p className={`message ${status.type}`}>{status.message}</p>
             </form>
           </article>

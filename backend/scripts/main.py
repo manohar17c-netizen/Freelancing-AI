@@ -1,20 +1,37 @@
 from __future__ import annotations
 
 import hashlib
+import io
+import re
 import uuid
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
 from auth import auth_router
-from database import init_db, load_freelancer_records, upsert_freelancer_record
+from database import (
+    init_db,
+    list_freelancer_profiles,
+    load_freelancer_records,
+    upsert_freelancer_record,
+)
 from ui_routes import ui_router
 
 try:
     from sentence_transformers import SentenceTransformer
 except ImportError:  # pragma: no cover
     SentenceTransformer = None
+
+try:
+    from pypdf import PdfReader
+except ImportError:  # pragma: no cover
+    PdfReader = None
+
+try:
+    from docx import Document
+except ImportError:  # pragma: no cover
+    Document = None
 
 
 app = FastAPI(title="Freelancing AI Matching API")
@@ -93,6 +110,7 @@ def initialize_persistence() -> None:
             "headline": record["headline"],
             "bio": record["bio"],
             "experience_years": max(int(record["experience_years"]), 0),
+            "experience_months": max(min(int(record.get("experience_months", 0) or 0), 11), 0),
             "skills": sorted({skill.strip().lower() for skill in record["skills"] if isinstance(skill, str)}),
         }
 
@@ -108,6 +126,8 @@ async def register_freelancer(
     email: str = Form(...),
     headline: str = Form(...),
     experience_years: int = Form(0),
+    experience_months: int = Form(0),
+    allow_empty_resume: bool = Form(False),
     skills: str = Form(""),
     bio: str = Form(""),
     file: UploadFile = File(...),
@@ -116,9 +136,7 @@ async def register_freelancer(
     if not content:
         raise HTTPException(status_code=400, detail="Uploaded resume is empty.")
 
-    text = content.decode("utf-8", errors="ignore").strip()
-    if not text:
-        raise HTTPException(status_code=400, detail="Could not parse UTF-8 text from resume.")
+    text, extraction_warning = _extract_resume_text(file, content, allow_empty_resume=allow_empty_resume)
 
     resume_id = f"resume-{uuid.uuid4().hex[:8]}"
     embedding = embedder.encode([text])[0]
@@ -127,13 +145,20 @@ async def register_freelancer(
     typed_skills = [skill.strip().lower() for skill in skills.split(",") if skill.strip()]
     inferred_skills = _extract_skills(text.lower())
     merged_skills = sorted(set(typed_skills) | set(inferred_skills))
+    extracted_years, extracted_months = _extract_experience_from_text(text.lower()) if text.strip() else (0, 0)
+
+    normalized_months = max(min(experience_months, 11), 0)
+    total_input_months = max(experience_years, 0) * 12 + normalized_months
+    total_extracted_months = max(extracted_years, 0) * 12 + max(min(extracted_months, 11), 0)
+    final_total_months = max(total_input_months, total_extracted_months)
 
     resume_metadata[resume_id] = {
         "name": name,
         "email": email,
         "headline": headline,
         "bio": bio,
-        "experience_years": max(experience_years, _extract_experience_years(text.lower())),
+        "experience_years": final_total_months // 12,
+        "experience_months": final_total_months % 12,
         "skills": merged_skills,
     }
 
@@ -144,39 +169,43 @@ async def register_freelancer(
         headline=headline,
         bio=bio,
         experience_years=resume_metadata[resume_id]["experience_years"],
+        experience_months=resume_metadata[resume_id]["experience_months"],
         skills=merged_skills,
         resume_text=text,
         embedding=embedding,
     )
 
-    return {
+    response = {
         "message": "Freelancer registered successfully",
         "resume_id": resume_id,
         "profile": {"name": name, "email": email, "headline": headline, "skills": merged_skills},
     }
+    if extraction_warning:
+        response["warning"] = extraction_warning
+    return response
 
 
 @app.post("/upload-resume")
-async def upload_resume(file: UploadFile = File(...)) -> Dict:
+async def upload_resume(file: UploadFile = File(...), allow_empty_resume: bool = Form(False)) -> Dict:
     content = await file.read()
     if not content:
         raise HTTPException(status_code=400, detail="Uploaded resume is empty.")
 
-    text = content.decode("utf-8", errors="ignore").strip()
-    if not text:
-        raise HTTPException(status_code=400, detail="Could not parse UTF-8 text from resume.")
+    text, extraction_warning = _extract_resume_text(file, content, allow_empty_resume=allow_empty_resume)
 
     resume_id = f"resume-{uuid.uuid4().hex[:8]}"
     embedding = embedder.encode([text])[0]
     resume_collection.add(documents=[text], embeddings=[embedding], ids=[resume_id])
 
-    lowered = text.lower()
+    lowered = text.lower() if text.strip() else ""
+    extracted_years, extracted_months = _extract_experience_from_text(lowered)
     resume_metadata[resume_id] = {
         "name": file.filename,
         "email": "",
         "headline": "Freelancer",
         "bio": "",
-        "experience_years": _extract_experience_years(lowered),
+        "experience_years": extracted_years,
+        "experience_months": extracted_months,
         "skills": _extract_skills(lowered),
     }
 
@@ -187,12 +216,16 @@ async def upload_resume(file: UploadFile = File(...)) -> Dict:
         headline="Freelancer",
         bio="",
         experience_years=resume_metadata[resume_id]["experience_years"],
+        experience_months=resume_metadata[resume_id]["experience_months"],
         skills=resume_metadata[resume_id]["skills"],
         resume_text=text,
         embedding=embedding,
     )
 
-    return {"message": "Resume stored successfully", "resume_id": resume_id}
+    response = {"message": "Resume stored successfully", "resume_id": resume_id}
+    if extraction_warning:
+        response["warning"] = extraction_warning
+    return response
 
 
 @app.post("/post-job")
@@ -205,8 +238,10 @@ def post_job(job: JobPost) -> Dict:
 
     ranked = []
     for result in semantic_matches:
-        candidate = resume_metadata.get(result["id"], {"skills": [], "experience_years": 0})
-        experience_score = min(candidate["experience_years"] / max(job.min_experience_years, 1), 1.0)
+        candidate = resume_metadata.get(result["id"], {"skills": [], "experience_years": 0, "experience_months": 0})
+        candidate_total_months = max(candidate["experience_years"], 0) * 12 + max(candidate.get("experience_months", 0), 0)
+        required_total_months = max(job.min_experience_years, 0) * 12
+        experience_score = min(candidate_total_months / max(required_total_months, 1), 1.0)
 
         required = {skill.lower() for skill in job.required_skills}
         available = set(candidate["skills"])
@@ -221,6 +256,8 @@ def post_job(job: JobPost) -> Dict:
                 "semantic_score": result["score"],
                 "skill_score": round(skill_score, 4),
                 "experience_score": round(experience_score, 4),
+                "experience_years": candidate.get("experience_years", 0),
+                "experience_months": candidate.get("experience_months", 0),
                 "final_score": final_score,
             }
         )
@@ -229,13 +266,89 @@ def post_job(job: JobPost) -> Dict:
     return {"top_matches": ranked[:5]}
 
 
-def _extract_experience_years(resume_text_lower: str) -> int:
-    for token in resume_text_lower.split():
-        if token.isdigit():
-            value = int(token)
-            if 0 < value < 51:
-                return value
-    return 0
+@app.get("/freelancers")
+def get_freelancers(limit: int = 100) -> Dict[str, List[Dict]]:
+    profiles = list_freelancer_profiles(limit)
+    return {"count": len(profiles), "freelancers": profiles}
+
+
+def _extract_resume_text(file: UploadFile, content: bytes, allow_empty_resume: bool = False) -> Tuple[str, str]:
+    filename = (file.filename or "").lower()
+    extension = "." + filename.rsplit(".", 1)[-1] if "." in filename else ""
+
+    def _empty_text_fallback(detail: str) -> Tuple[str, str]:
+        if allow_empty_resume:
+            fallback_text = f"[UNPARSEABLE_RESUME:{extension or 'unknown'}] {detail}"
+            return fallback_text, detail
+        raise HTTPException(status_code=400, detail=detail)
+
+    if filename.endswith(".txt"):
+        text = content.decode("utf-8", errors="ignore").strip()
+        if text:
+            return text, ""
+        return _empty_text_fallback("TXT has no readable text content.")
+
+    if filename.endswith(".pdf"):
+        if PdfReader is None:
+            raise HTTPException(status_code=500, detail="PDF support requires pypdf. Install dependency and retry.")
+        reader = PdfReader(io.BytesIO(content))
+        text = "\n".join(page.extract_text() or "" for page in reader.pages).strip()
+        if text:
+            return text, ""
+        return _empty_text_fallback(
+            "PDF text extraction returned empty content. The PDF is likely scanned/image-only or protected."
+        )
+
+    if filename.endswith(".docx"):
+        if Document is None:
+            raise HTTPException(status_code=500, detail="DOCX support requires python-docx. Install dependency and retry.")
+        document = Document(io.BytesIO(content))
+        paragraphs = [paragraph.text.strip() for paragraph in document.paragraphs if paragraph.text and paragraph.text.strip()]
+        table_cells = []
+        for table in document.tables:
+            for row in table.rows:
+                for cell in row.cells:
+                    cell_text = cell.text.strip()
+                    if cell_text:
+                        table_cells.append(cell_text)
+        text = "\n".join(paragraphs + table_cells).strip()
+        if text:
+            return text, ""
+        return _empty_text_fallback("DOCX has no readable text in paragraphs or tables.")
+
+    if filename.endswith(".doc"):
+        # Legacy .doc is binary and not reliably parseable without external converters.
+        decoded = content.decode("utf-8", errors="ignore").strip()
+        if decoded:
+            return decoded, "Legacy DOC parsed with fallback decoder. Convert to DOCX for better accuracy."
+        return _empty_text_fallback(
+            "Legacy DOC could not be parsed reliably. Convert the file to DOCX and upload again."
+        )
+
+    raise HTTPException(status_code=400, detail="Unsupported resume format. Upload TXT, PDF, DOCX, or DOC.")
+
+
+def _extract_experience_from_text(resume_text_lower: str) -> tuple[int, int]:
+    years = 0
+    months = 0
+
+    year_match = re.search(r"(\d{1,2})\s*\+?\s*(?:years?|yrs?)", resume_text_lower)
+    month_match = re.search(r"(\d{1,2})\s*\+?\s*(?:months?|mos?)", resume_text_lower)
+
+    if year_match:
+        years = max(0, min(int(year_match.group(1)), 50))
+    if month_match:
+        months = max(0, min(int(month_match.group(1)), 11))
+
+    if years == 0 and months == 0:
+        for token in resume_text_lower.split():
+            if token.isdigit():
+                value = int(token)
+                if 0 < value < 51:
+                    years = value
+                    break
+
+    return years, months
 
 
 def _extract_skills(resume_text_lower: str) -> List[str]:

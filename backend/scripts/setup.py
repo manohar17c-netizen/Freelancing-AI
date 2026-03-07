@@ -35,7 +35,7 @@ def wait_for_health(url: str, retries: int = 30, delay_s: int = 1) -> bool:
 
 
 def find_missing_packages() -> list[str]:
-    required = ["fastapi", "uvicorn", "multipart", "requests"]
+    required = ["fastapi", "uvicorn", "multipart", "requests", "certifi", "pypdf", "docx"]
     return [pkg for pkg in required if importlib.util.find_spec(pkg) is None]
 
 
@@ -46,7 +46,22 @@ def main() -> None:
     venv_python = VENV_DIR / ("Scripts/python.exe" if IS_WINDOWS else "bin/python")
 
     run([str(venv_python), "-m", "pip", "install", "--upgrade", "pip"], check=False)
-    run([str(venv_python), "-m", "pip", "install", "fastapi", "uvicorn", "python-multipart", "requests"], check=False)
+    run(
+        [
+            str(venv_python),
+            "-m",
+            "pip",
+            "install",
+            "fastapi",
+            "uvicorn",
+            "python-multipart",
+            "requests",
+            "certifi",
+            "pypdf",
+            "python-docx",
+        ],
+        check=False,
+    )
     run([str(venv_python), "-m", "pip", "install", "sentence-transformers"], check=False)
 
     missing = find_missing_packages()

@@ -2,6 +2,8 @@ import React from "react";
 import { Link } from "react-router-dom";
 
 export default function LandingPage() {
+  const backendBase = import.meta.env.DEV ? "http://127.0.0.1:8000" : "";
+
   return (
     <div className="page">
       <div className="container">
@@ -19,7 +21,7 @@ export default function LandingPage() {
             recommendations for your project needs.
           </p>
           <div className="actions-grid">
-            <a className="action primary" href="/auth/login?next=/ui/resume">
+            <a className="action primary" href={`${backendBase}/auth/login?next=/ui/resume`}>
               I&apos;m a Freelancer
             </a>
             <Link className="action" to="/jobs">
