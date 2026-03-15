@@ -9,10 +9,20 @@ on:
     branches:
       - dev
       - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   backend-checks:
+    name: Backend Checks
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout code
@@ -22,6 +32,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: pip
 
       - name: Install backend dependencies
         run: |
@@ -29,10 +40,42 @@ jobs:
           pip install fastapi uvicorn python-multipart requests certifi pypdf python-docx
 
       - name: Compile backend Python files
-        run: python -m py_compile backend/scripts/main.py backend/scripts/database.py backend/scripts/auth.py
+        run: python -m py_compile backend/scripts/main.py backend/scripts/database.py backend/scripts/auth.py ui_routes.py
+
+      - name: Start backend server
+        run: |
+          python -m uvicorn main:app --app-dir backend/scripts --host 127.0.0.1 --port 8000 > /tmp/freelancing_ai_uvicorn.log 2>&1 &
+          echo $! > /tmp/freelancing_ai_uvicorn.pid
+
+      - name: Wait for backend healthcheck
+        run: |
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:8000/ > /dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/freelancing_ai_uvicorn.log
+          exit 1
+
+      - name: Run backend API smoke test
+        run: python backend/scripts/test_api.py
+
+      - name: Print backend log on failure
+        if: failure()
+        run: cat /tmp/freelancing_ai_uvicorn.log
+
+      - name: Stop backend server
+        if: always()
+        run: |
+          if [ -f /tmp/freelancing_ai_uvicorn.pid ]; then
+            kill "$(cat /tmp/freelancing_ai_uvicorn.pid)" || true
+          fi
 
   frontend-checks:
+    name: Frontend Checks
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - name: Checkout code
@@ -58,11 +101,13 @@ jobs:
         run: npm run build
 
   deploy-staging:
+    name: Deploy Staging
     if: github.ref == 'refs/heads/dev' && github.event_name == 'push'
     needs:
       - backend-checks
       - frontend-checks
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - name: Checkout code
@@ -72,11 +117,13 @@ jobs:
         run: echo "Deploying to staging server..."
 
   deploy-production:
+    name: Deploy Production
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     needs:
       - backend-checks
       - frontend-checks
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - name: Checkout code
