@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   backend-checks:
-    name: Backend Checks
+    name: backend-checks
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -77,7 +77,7 @@ jobs:
           fi
 
   frontend-checks:
-    name: Frontend Checks
+    name: frontend-checks
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
