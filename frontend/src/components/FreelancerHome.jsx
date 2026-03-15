@@ -3,11 +3,7 @@ import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 
 const TAB_CONTENT = {
-  "Find Jobs": [
-    "AI-ranked jobs based on your skills and experience.",
-    "Smart filters: budget, duration, timezone, and contract type.",
-    "One-click proposal templates tuned to each job.",
-  ],
+  "Find Jobs": [],
   Upskill: [
     "Skill-gap analysis between your profile and top-paying jobs.",
     "Suggested learning tracks (FastAPI, AWS, System Design, React).",
@@ -34,6 +30,8 @@ export default function FreelancerHome() {
   const apiBase = import.meta.env.DEV ? "http://127.0.0.1:8000" : "";
   const [activeTab, setActiveTab] = useState("Find Jobs");
   const [authState, setAuthState] = useState({ loading: true, user: null });
+  const [jobsState, setJobsState] = useState({ loading: false, registered: true, jobs: [], error: "" });
+  const [jobQuery, setJobQuery] = useState("");
 
   useEffect(() => {
     async function loadSession() {
@@ -55,6 +53,35 @@ export default function FreelancerHome() {
     }
     loadSession();
   }, [apiBase]);
+
+  useEffect(() => {
+    if (authState.loading) return;
+    if (!authState.user) return;
+
+    async function loadRecommendedJobs() {
+      setJobsState((prev) => ({ ...prev, loading: true, error: "" }));
+      try {
+        const url = new URL(`${apiBase}/jobs/recommended`);
+        if (jobQuery.trim()) url.searchParams.set("q", jobQuery.trim());
+        const response = await fetch(url.toString(), { credentials: "include" });
+        if (response.status === 401) {
+          window.location.href = `${apiBase}/auth/login?next=/ui/freelancer/home`;
+          return;
+        }
+        const data = await response.json();
+        if (!response.ok) {
+          setJobsState({ loading: false, registered: true, jobs: [], error: data?.detail || "Unable to load jobs." });
+          return;
+        }
+        setJobsState({ loading: false, registered: Boolean(data.registered), jobs: data.jobs || [], error: "" });
+      } catch {
+        setJobsState({ loading: false, registered: true, jobs: [], error: "Network error while loading jobs." });
+      }
+    }
+
+    // Only load when Find Jobs tab is active (and query changes).
+    if (activeTab === "Find Jobs") loadRecommendedJobs();
+  }, [apiBase, activeTab, authState.loading, authState.user, jobQuery]);
 
   if (authState.loading) {
     return (
@@ -139,11 +166,81 @@ export default function FreelancerHome() {
 
           <article className="panel tab-content">
             <h2>{activeTab}</h2>
-            <ul>
-              {TAB_CONTENT[activeTab].map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
+            {activeTab === "Find Jobs" ? (
+              <div>
+                <div className="jobs-toolbar">
+                  <div className="jobs-search">
+                    <label htmlFor="jobSearch">Search jobs</label>
+                    <input
+                      id="jobSearch"
+                      value={jobQuery}
+                      onChange={(e) => setJobQuery(e.target.value)}
+                      placeholder="Search by keyword or required skill (e.g., React, FastAPI)"
+                    />
+                  </div>
+                </div>
+
+                {!jobsState.registered ? (
+                  <div className="warning">
+                    Complete your profile first to get personalized recommendations.{" "}
+                    <Link className="text-link" to="/resume">
+                      Create profile
+                    </Link>
+                    .
+                  </div>
+                ) : null}
+
+                {jobsState.error ? <div className="warning">{jobsState.error}</div> : null}
+                {jobsState.loading ? <p className="muted">Loading recommended jobs...</p> : null}
+
+                {!jobsState.loading && jobsState.jobs?.length === 0 ? (
+                  <p className="muted">No live jobs found yet. Ask a client to post a job and make it live.</p>
+                ) : null}
+
+                <div className="jobs-list">
+                  {(jobsState.jobs || []).map((job) => (
+                    <article key={job.job_id} className="job-card">
+                      <div className="job-card-top">
+                        <div>
+                          <div className="job-title-row">
+                            <span className="job-title">Job {job.job_id}</span>
+                            <span className="job-match-pill">{job.match_percentage}% match</span>
+                          </div>
+                          <p className="muted job-desc">{job.description}</p>
+                        </div>
+                      </div>
+
+                      <div className="job-meta-row">
+                        <span className="job-meta">
+                          <b>Client</b>: {job.client_name || "Client"}
+                        </span>
+                        <span className="job-meta">
+                          <b>Min exp</b>: {job.min_experience_years || 0}+ yrs
+                        </span>
+                      </div>
+
+                      {Array.isArray(job.required_skills) && job.required_skills.length ? (
+                        <div className="job-skills">
+                          {job.required_skills.slice(0, 10).map((s) => (
+                            <span key={s} className="skill-chip">
+                              {s}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="muted">No required skills provided for this job.</p>
+                      )}
+                    </article>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <ul>
+                {TAB_CONTENT[activeTab].map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            )}
           </article>
         </section>
       </main>

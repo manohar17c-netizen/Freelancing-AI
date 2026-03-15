@@ -21,7 +21,7 @@ export default function LandingPage() {
             recommendations for your project needs.
           </p>
           <div className="actions-grid">
-            <a className="action primary" href={`${backendBase}/auth/login?next=/ui/resume`}>
+            <a className="action primary" href={`${backendBase}/auth/login?next=/ui/freelancer/home`}>
               I&apos;m a Freelancer
             </a>
             <a className="action primary" href={`${backendBase}/auth/login?next=/ui/jobs`}>

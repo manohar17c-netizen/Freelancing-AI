@@ -268,6 +268,104 @@ def list_freelancer_profiles(limit: int = 100) -> List[Dict[str, Any]]:
     return profiles
 
 
+def get_freelancer_by_email(email: str) -> Dict[str, Any] | None:
+    if not email:
+        return None
+    normalized = email.strip().lower()
+    with _get_connection() as connection:
+        row = connection.execute(
+            """
+            SELECT resume_id, name, email, headline, bio, experience_years, experience_months,
+                   skills_json, resume_text, embedding_json,
+                   COALESCE(availability_slots_json, '[]') as availability_slots_json,
+                   COALESCE(whatsapp_phone, '') as whatsapp_phone,
+                   COALESCE(profile_live, 1) as profile_live
+            FROM freelancers
+            WHERE lower(trim(email)) = ?
+            LIMIT 1
+            """,
+            (normalized,),
+        ).fetchone()
+    if not row:
+        return None
+    row_d = {k: row[k] for k in row.keys()} if hasattr(row, "keys") else {}
+    try:
+        skills = json.loads(row_d.get("skills_json") or "[]")
+    except json.JSONDecodeError:
+        skills = []
+    try:
+        embedding = json.loads(row_d.get("embedding_json") or "[]")
+    except json.JSONDecodeError:
+        embedding = []
+    try:
+        slots = json.loads(row_d.get("availability_slots_json") or "[]")
+    except (json.JSONDecodeError, TypeError):
+        slots = []
+
+    return {
+        "resume_id": row_d.get("resume_id", ""),
+        "name": row_d.get("name", ""),
+        "email": row_d.get("email", ""),
+        "headline": row_d.get("headline", ""),
+        "bio": row_d.get("bio", ""),
+        "experience_years": int(row_d.get("experience_years", 0) or 0),
+        "experience_months": int(row_d.get("experience_months", 0) or 0),
+        "skills": skills if isinstance(skills, list) else [],
+        "resume_text": row_d.get("resume_text", ""),
+        "embedding": embedding if isinstance(embedding, list) else [],
+        "availability_slots": slots if isinstance(slots, list) else [],
+        "whatsapp_phone": str(row_d.get("whatsapp_phone", "") or ""),
+        "profile_live": bool(row_d.get("profile_live", 1)),
+    }
+
+
+def list_jobs(limit: int = 50, q: str = "", live_only: bool = True) -> List[Dict[str, Any]]:
+    safe_limit = max(1, min(limit, 200))
+    query = (q or "").strip().lower()
+    with _get_connection() as connection:
+        sql = """
+            SELECT job_id, client_name, client_email, client_whatsapp, description,
+                   required_skills_json, min_experience_years, is_live, created_at, updated_at
+            FROM jobs
+        """
+        where = []
+        params: list[Any] = []
+        if live_only:
+            where.append("is_live = 1")
+        if query:
+            where.append("(lower(description) LIKE ? OR lower(required_skills_json) LIKE ?)")
+            like = f"%{query}%"
+            params.extend([like, like])
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+        sql += " ORDER BY created_at DESC LIMIT ?"
+        params.append(safe_limit)
+        rows = connection.execute(sql, tuple(params)).fetchall()
+
+    jobs: List[Dict[str, Any]] = []
+    for row in rows:
+        row_d = {k: row[k] for k in row.keys()} if hasattr(row, "keys") else {}
+        try:
+            required_skills = json.loads(row_d.get("required_skills_json") or "[]")
+        except json.JSONDecodeError:
+            required_skills = []
+        jobs.append(
+            {
+                "job_id": row_d.get("job_id", ""),
+                "client_name": row_d.get("client_name", ""),
+                "client_email": row_d.get("client_email", ""),
+                "client_whatsapp": row_d.get("client_whatsapp", ""),
+                "description": row_d.get("description", ""),
+                "required_skills": required_skills if isinstance(required_skills, list) else [],
+                "min_experience_years": int(row_d.get("min_experience_years", 0) or 0),
+                "is_live": bool(row_d.get("is_live", 0)),
+                "created_at": row_d.get("created_at", ""),
+                "updated_at": row_d.get("updated_at", ""),
+            }
+        )
+    return jobs
+
+
 def create_job(
     *,
     job_id: str,

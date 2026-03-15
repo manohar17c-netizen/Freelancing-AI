@@ -12,6 +12,7 @@ const initialForm = {
   bio: "",
   whatsapp_phone: "",
   availability_slots: [],
+  pdf_password: "",
 };
 
 export default function ResumePage() {
@@ -104,6 +105,7 @@ export default function ResumePage() {
     body.append("bio", form.bio);
     body.append("whatsapp_phone", form.whatsapp_phone);
     body.append("availability_slots", JSON.stringify(form.availability_slots || []));
+    body.append("pdf_password", form.pdf_password || "");
     body.append("file", file);
 
     try {
@@ -304,6 +306,16 @@ export default function ResumePage() {
                   Upload Resume
                 </button>
               </div>
+
+              <label htmlFor="pdf_password">PDF password (only if your PDF is locked)</label>
+              <input
+                id="pdf_password"
+                name="pdf_password"
+                type="password"
+                value={form.pdf_password}
+                onChange={onChange}
+                placeholder="Enter PDF password if required"
+              />
 
               <button type="submit">Register</button>
               <p className={`message ${status.type}`}>{status.message}</p>

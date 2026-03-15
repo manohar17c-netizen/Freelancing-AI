@@ -38,7 +38,12 @@ def _frontend_response(path: str = ""):
     candidate = (FRONTEND_DIST_DIR / safe_path).resolve()
     if str(candidate).startswith(str(FRONTEND_DIST_DIR.resolve())) and candidate.is_file():
         return FileResponse(candidate)
-    return FileResponse(FRONTEND_DIST_DIR / "index.html")
+    # Avoid sticky caching of the HTML shell so UI updates show up immediately
+    # after `npm run build` without requiring users to clear cache.
+    return FileResponse(
+        FRONTEND_DIST_DIR / "index.html",
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )
 
 
 @ui_router.get("/ui", response_class=HTMLResponse)

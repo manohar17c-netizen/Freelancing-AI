@@ -281,6 +281,89 @@ thead {
   margin-top: 1rem;
 }
 
+.jobs-toolbar {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-end;
+  margin-bottom: 1rem;
+}
+
+.jobs-search label {
+  margin-bottom: 0.35rem;
+}
+
+.jobs-search input {
+  margin: 0;
+}
+
+.jobs-list {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.job-card {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 1rem;
+  background: linear-gradient(135deg, #ffffff 30%, #f7f2ff 100%);
+}
+
+.job-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.job-title {
+  font-weight: 800;
+}
+
+.job-match-pill {
+  white-space: nowrap;
+  font-weight: 800;
+  font-size: 0.85rem;
+  padding: 0.25rem 0.55rem;
+  border-radius: 999px;
+  background: #efe7ff;
+  color: var(--brand-strong);
+  border: 1px solid var(--border);
+}
+
+.job-desc {
+  margin: 0.35rem 0 0;
+}
+
+.job-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.2rem;
+  margin-top: 0.75rem;
+}
+
+.job-meta b {
+  color: var(--text);
+}
+
+.job-skills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.8rem;
+}
+
+.skill-chip {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 999px;
+  padding: 0.25rem 0.55rem;
+  font-weight: 700;
+  font-size: 0.82rem;
+  color: var(--brand-strong);
+}
+
 .experience-row {
   display: grid;
   grid-template-columns: 1fr 1fr;

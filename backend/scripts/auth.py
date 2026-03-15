@@ -12,9 +12,10 @@ from typing import Dict, Optional
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
+from database import list_freelancer_profiles
 
 AUTH_COOKIE = "freelancing_auth"
-FREELANCER_INTAKE_PATH = "/ui/resume"
+FREELANCER_INTAKE_PATH = "/ui/freelancer/home"
 
 auth_router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -45,6 +46,26 @@ try:
     import certifi
 except ImportError:  # pragma: no cover
     certifi = None
+
+
+def _freelancer_profile_exists(email: str) -> bool:
+    """
+    Return True if a freelancer profile already exists for this email.
+    Used to decide whether to send the user to resume onboarding or home.
+    """
+    if not email:
+        return False
+
+    normalized = email.strip().lower()
+    try:
+        profiles = list_freelancer_profiles(limit=1000)
+    except Exception:
+        return False
+
+    for profile in profiles:
+        if str(profile.get("email", "")).strip().lower() == normalized:
+            return True
+    return False
 
 
 def get_authenticated_user(request: Request) -> Optional[Dict[str, str]]:
@@ -252,7 +273,7 @@ def current_user(request: Request):
 def login_page(next: str = FREELANCER_INTAKE_PATH) -> str:
     if next == "/ui/jobs":
         return _build_login_page(next, title="Sign in as a client", subtitle="Continue with your Google account to post jobs and hire freelancers.")
-    return _build_login_page(next, title="Sign in as a freelancer", subtitle="Continue with your Google account. You will be redirected to resume onboarding.")
+    return _build_login_page(next, title="Sign in as a freelancer", subtitle="Continue with your Google account. You will be redirected to your freelancer home.")
 
 
 @auth_router.get("/start/{provider}")
@@ -317,6 +338,18 @@ def oauth_callback(request: Request, provider: str, state: str = "", code: str =
     except Exception as exc:  # pragma: no cover
         return HTMLResponse(_build_error_page(f"Google sign-in failed: {exc}"), status_code=400)
 
+    # Decide the best post-login destination:
+    # - If the user already has a freelancer profile → send to freelancer home
+    # - Otherwise → send them through resume onboarding
+    requested_next = pending.get("next", FREELANCER_INTAKE_PATH)
+    if requested_next in ("/ui/resume", "/ui/freelancer/home", FREELANCER_INTAKE_PATH):
+        if _freelancer_profile_exists(resolved_email):
+            next_path = "/ui/freelancer/home"
+        else:
+            next_path = "/ui/resume"
+    else:
+        next_path = requested_next
+
     session_token = secrets.token_urlsafe(24)
     _user_sessions[session_token] = {
         "name": resolved_name,
@@ -325,7 +358,7 @@ def oauth_callback(request: Request, provider: str, state: str = "", code: str =
         "picture": resolved_picture,
     }
 
-    response = RedirectResponse(pending["next"], status_code=302)
+    response = RedirectResponse(next_path, status_code=302)
     response.set_cookie(AUTH_COOKIE, session_token, httponly=True, samesite="lax")
     return response
 

@@ -7,15 +7,18 @@ import re
 import uuid
 from typing import Dict, List, Tuple
 
-from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Body, FastAPI, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
 
 from auth import auth_router
+from auth import get_authenticated_user
 from database import (
     create_job,
+    get_freelancer_by_email,
     get_freelancer_by_resume_id,
     get_job,
     init_db,
+    list_jobs,
     list_freelancer_profiles,
     load_freelancer_records,
     schedule_interview,
@@ -153,6 +156,7 @@ async def register_freelancer(
     experience_years: int = Form(0),
     experience_months: int = Form(0),
     allow_empty_resume: bool = Form(False),
+    pdf_password: str = Form(""),
     skills: str = Form(""),
     bio: str = Form(""),
     whatsapp_phone: str = Form(""),
@@ -163,7 +167,9 @@ async def register_freelancer(
     if not content:
         raise HTTPException(status_code=400, detail="Uploaded resume is empty.")
 
-    text, extraction_warning = _extract_resume_text(file, content, allow_empty_resume=allow_empty_resume)
+    text, extraction_warning = _extract_resume_text(
+        file, content, allow_empty_resume=allow_empty_resume, pdf_password=pdf_password or ""
+    )
 
     resume_id = f"resume-{uuid.uuid4().hex[:8]}"
     embedding = embedder.encode([text])[0]
@@ -226,12 +232,16 @@ async def register_freelancer(
 
 
 @app.post("/upload-resume")
-async def upload_resume(file: UploadFile = File(...), allow_empty_resume: bool = Form(False)) -> Dict:
+async def upload_resume(
+    file: UploadFile = File(...), allow_empty_resume: bool = Form(False), pdf_password: str = Form("")
+) -> Dict:
     content = await file.read()
     if not content:
         raise HTTPException(status_code=400, detail="Uploaded resume is empty.")
 
-    text, extraction_warning = _extract_resume_text(file, content, allow_empty_resume=allow_empty_resume)
+    text, extraction_warning = _extract_resume_text(
+        file, content, allow_empty_resume=allow_empty_resume, pdf_password=pdf_password or ""
+    )
 
     resume_id = f"resume-{uuid.uuid4().hex[:8]}"
     embedding = embedder.encode([text])[0]
@@ -337,6 +347,84 @@ def get_freelancers(limit: int = 100) -> Dict[str, List[Dict]]:
     return {"count": len(profiles), "freelancers": profiles}
 
 
+@app.get("/freelancers/me")
+def get_my_freelancer_profile(request: Request) -> Dict:
+    user = get_authenticated_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    profile = get_freelancer_by_email(user.get("email", ""))
+    if not profile:
+        return {"registered": False, "profile": None}
+    safe_profile = {
+        "resume_id": profile.get("resume_id", ""),
+        "name": profile.get("name", ""),
+        "email": profile.get("email", ""),
+        "headline": profile.get("headline", ""),
+        "bio": profile.get("bio", ""),
+        "experience_years": profile.get("experience_years", 0),
+        "experience_months": profile.get("experience_months", 0),
+        "skills": profile.get("skills", []),
+        "availability_slots": profile.get("availability_slots", []),
+        "whatsapp_phone": profile.get("whatsapp_phone", ""),
+        "profile_live": profile.get("profile_live", True),
+    }
+    return {"registered": True, "profile": safe_profile}
+
+
+@app.get("/jobs/recommended")
+def recommended_jobs(request: Request, q: str = "", limit: int = 30) -> Dict:
+    user = get_authenticated_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    freelancer = get_freelancer_by_email(user.get("email", ""))
+    if not freelancer:
+        return {"registered": False, "jobs": []}
+
+    freelancer_skills = {str(s).strip().lower() for s in (freelancer.get("skills") or []) if str(s).strip()}
+    freelancer_embedding = freelancer.get("embedding") or []
+    freelancer_total_months = max(int(freelancer.get("experience_years", 0) or 0), 0) * 12 + max(
+        int(freelancer.get("experience_months", 0) or 0), 0
+    )
+
+    jobs = list_jobs(limit=limit, q=q, live_only=True)
+    ranked = []
+    for job in jobs:
+        required = {str(s).strip().lower() for s in (job.get("required_skills") or []) if str(s).strip()}
+        if required:
+            skill_score = len(required & freelancer_skills) / max(len(required), 1)
+        else:
+            # No explicit skill requirement; treat as low-confidence match.
+            skill_score = 0.0
+
+        required_total_months = max(int(job.get("min_experience_years", 0) or 0), 0) * 12
+        experience_score = min(freelancer_total_months / max(required_total_months, 1), 1.0)
+
+        semantic_score = 0.0
+        desc = str(job.get("description", "") or "")
+        if desc.strip() and isinstance(freelancer_embedding, list) and freelancer_embedding:
+            job_emb = embedder.encode([desc])[0]
+            semantic_score = cosine_similarity(job_emb, freelancer_embedding)
+
+        # Prioritize explicit skill mapping; blend in experience + semantics.
+        final_score = round((0.6 * skill_score) + (0.25 * experience_score) + (0.15 * semantic_score), 4)
+        match_percentage = min(100, max(1, int(final_score * 100)))
+
+        ranked.append(
+            {
+                **job,
+                "skill_score": round(skill_score, 4),
+                "experience_score": round(experience_score, 4),
+                "semantic_score": round(semantic_score, 4),
+                "final_score": final_score,
+                "match_percentage": match_percentage,
+            }
+        )
+
+    ranked.sort(key=lambda item: item["final_score"], reverse=True)
+    return {"registered": True, "jobs": ranked}
+
+
 def _build_whatsapp_message(job_preview: str, matches: List[Dict]) -> str:
     lines = [
         "🔔 *FreelancingAI – Developers matching your requirement*",
@@ -408,7 +496,9 @@ def get_freelancer_slots(resume_id: str) -> Dict:
     return {"resume_id": resume_id, "availability_slots": freelancer.get("availability_slots", [])}
 
 
-def _extract_resume_text(file: UploadFile, content: bytes, allow_empty_resume: bool = False) -> Tuple[str, str]:
+def _extract_resume_text(
+    file: UploadFile, content: bytes, allow_empty_resume: bool = False, pdf_password: str = ""
+) -> Tuple[str, str]:
     filename = (file.filename or "").lower()
     extension = "." + filename.rsplit(".", 1)[-1] if "." in filename else ""
 
@@ -427,8 +517,20 @@ def _extract_resume_text(file: UploadFile, content: bytes, allow_empty_resume: b
     if filename.endswith(".pdf"):
         if PdfReader is None:
             raise HTTPException(status_code=500, detail="PDF support requires pypdf. Install dependency and retry.")
-        reader = PdfReader(io.BytesIO(content))
-        text = "\n".join(page.extract_text() or "" for page in reader.pages).strip()
+        try:
+            reader = PdfReader(io.BytesIO(content))
+            if reader.is_encrypted:
+                if pdf_password:
+                    reader.decrypt(pdf_password)
+                else:
+                    return _empty_text_fallback(
+                        "PDF is password-protected. Please enter the password in the password field and try again."
+                    )
+            text = "\n".join(page.extract_text() or "" for page in reader.pages).strip()
+        except Exception:
+            return _empty_text_fallback(
+                "PDF could not be parsed. It is likely password-protected or corrupted. Convert it to a readable TXT/PDF and upload again."
+            )
         if text:
             return text, ""
         return _empty_text_fallback(
