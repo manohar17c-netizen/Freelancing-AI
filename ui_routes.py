@@ -1,11 +1,33 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 
 from auth import get_authenticated_user
 
 ui_router = APIRouter(tags=["ui"])
+FRONTEND_DIST = Path(__file__).resolve().parent / "frontend" / "dist"
+FRONTEND_ASSETS = FRONTEND_DIST / "assets"
+
+
+def _spa_shell() -> HTMLResponse:
+    index_path = FRONTEND_DIST / "index.html"
+    if not index_path.exists():
+        return HTMLResponse(
+            "<h1>Frontend build not found</h1><p>Run the frontend build so /ui/jobs can load.</p>",
+            status_code=503,
+        )
+    return HTMLResponse(index_path.read_text(encoding="utf-8"))
+
+
+@ui_router.get("/ui/assets/{asset_name}")
+def ui_asset(asset_name: str):
+    asset_path = (FRONTEND_ASSETS / asset_name).resolve()
+    if not str(asset_path).startswith(str(FRONTEND_ASSETS.resolve())) or not asset_path.exists():
+        return HTMLResponse("Asset not found", status_code=404)
+    return FileResponse(asset_path)
 
 
 @ui_router.get("/ui", response_class=HTMLResponse)
@@ -48,6 +70,11 @@ def landing_page() -> str:
         }
         .logo { font-weight:800; font-size:1.15rem; }
         .logo span { color:var(--brand); }
+        .top-link {
+          text-decoration:none;
+          color:var(--brand);
+          font-weight:700;
+        }
         .hero {
           margin:1rem auto 3rem;
           border:1px solid var(--border);
@@ -110,7 +137,7 @@ def landing_page() -> str:
       <div class="container">
         <header>
           <div class="logo"><span>Freelancing</span>AI</div>
-          <nav style="display:flex; gap:.8rem"><a style="text-decoration:none;color:var(--brand);font-weight:700" href="/auth/start/google?next=/ui/resume">Signup</a></nav>
+          <nav style="display:flex; gap:.8rem"><a class="top-link" href="/auth/continue">Sign in</a></nav>
         </header>
 
         <main class="hero">
@@ -192,7 +219,6 @@ def resume_page(request: Request):
       <main class="container">
         <div class="topbar">
           <div class="brand"><span>Freelancing</span>AI</div>
-          <small>Signed in via {provider.title()} </small>
         </div>
         <section class="layout">
           <aside class="panel">
@@ -271,100 +297,4 @@ def resume_page(request: Request):
 
 @ui_router.get("/ui/jobs", response_class=HTMLResponse)
 def jobs_page() -> str:
-    return """
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-      <meta charset="UTF-8" />
-      <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-      <title>Client Job Posting</title>
-      <style>
-        :root {
-          --bg:#f8f5ff;
-          --surface:#ffffff;
-          --surface-soft:#f5f0ff;
-          --text:#1e1534;
-          --muted:#6b5a8e;
-          --brand:#6d28d9;
-          --brand-strong:#5b21b6;
-          --success:#0f9d58;
-          --warning:#b45309;
-          --border:#ddcdfb;
-        }
-        * { box-sizing:border-box; }
-        body { margin:0; font-family: Inter, system-ui, sans-serif; background:var(--bg); color:var(--text); }
-        .container { max-width:1080px; margin:0 auto; padding:1.4rem 1rem 3rem; }
-        .brand { font-size:1.05rem; font-weight:800; margin-bottom:1rem; }
-        .brand span { color:var(--brand); }
-        .card { background:var(--surface); border:1px solid var(--border); border-radius:18px; padding:1.3rem; box-shadow:0 14px 24px rgba(109,40,217,.08); }
-        input, textarea {
-          width:100%; border-radius:10px; border:1px solid #ccb8f8; background:var(--surface-soft);
-          color:var(--text); padding:.7rem .8rem; margin:.35rem 0 .9rem; font-size:.95rem;
-        }
-        label { font-weight:700; font-size:.9rem; }
-        button {
-          width:100%; border:none; border-radius:12px; color:#fff; font-weight:800; padding:.8rem;
-          background:linear-gradient(100deg,var(--brand), var(--brand-strong)); cursor:pointer;
-        }
-        .message { font-size:.9rem; min-height:1.1rem; margin-top:.5rem; font-weight:600; }
-        .success { color:var(--success); } .warning { color:var(--warning); }
-        table { width:100%; border-collapse:collapse; margin-top:.95rem; font-size:.92rem; border:1px solid var(--border); border-radius:10px; overflow:hidden; }
-        th, td { border-bottom:1px solid #e5dafc; text-align:left; padding:.58rem; }
-        thead { background:#f0e8ff; }
-      </style>
-    </head>
-    <body>
-      <main class="container">
-        <div class="brand"><span>Freelancing</span>AI</div>
-        <p style="margin:.15rem 0 .85rem"><a href="/auth/start/google?next=/ui/resume">Freelancer Signup / Login with Google</a> </p>
-        <article class="card">
-          <h1 style="margin-top:0">Post a job and match top freelancers</h1>
-          <p style="color:var(--muted)">Describe your project and instantly receive ranked recommendations based on semantic fit, required skills, and experience.</p>
-          <form id="jobForm">
-            <label for="description">Job description</label>
-            <textarea id="description" name="description" rows="4" minlength="10" required></textarea>
-            <label for="requiredSkills">Required skills (comma-separated)</label>
-            <input id="requiredSkills" name="requiredSkills" placeholder="react, node, aws" />
-            <label for="minExperience">Minimum experience years</label>
-            <input id="minExperience" name="minExperience" type="number" min="0" value="0" />
-            <button type="submit">Find Best Freelancers</button>
-            <p id="jobMessage" class="message"></p>
-          </form>
-          <div id="results"></div>
-        </article>
-      </main>
-      <script>
-        const jobMessage = document.getElementById('jobMessage');
-        const resultsContainer = document.getElementById('results');
-        document.getElementById('jobForm').addEventListener('submit', async (event) => {
-          event.preventDefault();
-          jobMessage.className = 'message';
-          jobMessage.textContent = 'Matching candidates...';
-          resultsContainer.innerHTML = '';
-          const form = event.target;
-          const payload = {
-            description: form.description.value,
-            required_skills: form.requiredSkills.value.split(',').map((s) => s.trim()).filter(Boolean),
-            min_experience_years: Number(form.minExperience.value) || 0,
-          };
-          try {
-            const response = await fetch('/post-job', {
-              method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
-            });
-            const data = await response.json();
-            if (!response.ok) throw new Error(data.detail || 'Job matching failed.');
-            jobMessage.className = 'message success';
-            jobMessage.textContent = `Found ${data.top_matches.length} top matches.`;
-            const rows = data.top_matches.map((m) => `
-              <tr><td>${m.name}</td><td>${m.headline}</td><td>${m.final_score}</td><td>${m.skill_score}</td><td>${m.experience_score}</td></tr>
-            `).join('');
-            resultsContainer.innerHTML = `<table><thead><tr><th>Name</th><th>Headline</th><th>Final Score</th><th>Skill</th><th>Experience</th></tr></thead><tbody>${rows || '<tr><td colspan="5">No results.</td></tr>'}</tbody></table>`;
-          } catch (error) {
-            jobMessage.className = 'message warning';
-            jobMessage.textContent = error.message;
-          }
-        });
-      </script>
-    </body>
-    </html>
-    """
+    return _spa_shell()

@@ -1,5 +1,4 @@
 import React from "react";
-import { Link } from "react-router-dom";
 
 export default function LandingPage() {
   const backendBase = import.meta.env.DEV ? "http://127.0.0.1:8000" : "";
@@ -11,6 +10,9 @@ export default function LandingPage() {
           <div className="logo">
             <span>Freelancing</span>AI
           </div>
+          <a className="text-link" href={`${backendBase}/auth/continue`}>
+            Sign in
+          </a>
         </header>
 
         <main className="hero">

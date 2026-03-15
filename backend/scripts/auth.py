@@ -16,6 +16,7 @@ from database import list_freelancer_profiles
 
 AUTH_COOKIE = "freelancing_auth"
 FREELANCER_INTAKE_PATH = "/ui/freelancer/home"
+CLIENT_HOME_PATH = "/ui/jobs"
 
 auth_router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -73,6 +74,19 @@ def get_authenticated_user(request: Request) -> Optional[Dict[str, str]]:
     if not token:
         return None
     return _user_sessions.get(token)
+
+
+def resolve_user_home(user: Optional[Dict[str, str]]) -> str:
+    if not user:
+        return FREELANCER_INTAKE_PATH
+
+    role = user.get("role", "freelancer")
+    if role == "client":
+        return CLIENT_HOME_PATH
+
+    if _freelancer_profile_exists(user.get("email", "")):
+        return "/ui/freelancer/home"
+    return "/ui/resume"
 
 
 def _ssl_context() -> ssl.SSLContext:
@@ -176,7 +190,6 @@ def _build_login_page(next_url: str, title: str = "Sign in", subtitle: str = "Co
         <div class=\"actions\">
           <a class=\"btn primary\" href=\"/auth/start/google?next={safe_next}\">Continue with Google</a>
         </div>
-        <p class=\"meta\">If login fails, open <code>/auth/config</code> and verify your OAuth setup.</p>
       </main>
     </body>
     </html>
@@ -266,7 +279,7 @@ def current_user(request: Request):
     user = get_authenticated_user(request)
     if not user:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    return {"authenticated": True, "user": user}
+    return {"authenticated": True, "user": user, "home": resolve_user_home(user)}
 
 
 @auth_router.get("/login", response_class=HTMLResponse)
@@ -274,6 +287,14 @@ def login_page(next: str = FREELANCER_INTAKE_PATH) -> str:
     if next == "/ui/jobs":
         return _build_login_page(next, title="Sign in as a client", subtitle="Continue with your Google account to post jobs and hire freelancers.")
     return _build_login_page(next, title="Sign in as a freelancer", subtitle="Continue with your Google account. You will be redirected to your freelancer home.")
+
+
+@auth_router.get("/continue")
+def continue_after_login(request: Request) -> RedirectResponse:
+    user = get_authenticated_user(request)
+    if not user:
+        return RedirectResponse(f"/auth/login?next={FREELANCER_INTAKE_PATH}", status_code=302)
+    return RedirectResponse(resolve_user_home(user), status_code=302)
 
 
 @auth_router.get("/start/{provider}")
@@ -342,6 +363,7 @@ def oauth_callback(request: Request, provider: str, state: str = "", code: str =
     # - If the user already has a freelancer profile → send to freelancer home
     # - Otherwise → send them through resume onboarding
     requested_next = pending.get("next", FREELANCER_INTAKE_PATH)
+    role = "client" if requested_next == CLIENT_HOME_PATH else "freelancer"
     if requested_next in ("/ui/resume", "/ui/freelancer/home", FREELANCER_INTAKE_PATH):
         if _freelancer_profile_exists(resolved_email):
             next_path = "/ui/freelancer/home"
@@ -356,6 +378,7 @@ def oauth_callback(request: Request, provider: str, state: str = "", code: str =
         "email": resolved_email,
         "provider": provider,
         "picture": resolved_picture,
+        "role": role,
     }
 
     response = RedirectResponse(next_path, status_code=302)
