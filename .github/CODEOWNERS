@@ -1,0 +1,5 @@
+# Default code owner for the repository.
+* @manohar17c
+
+# Workflow changes should always require owner review.
+.github/workflows/ @manohar17c

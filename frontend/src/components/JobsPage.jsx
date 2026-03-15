@@ -1164,7 +1164,7 @@ export default function JobsPage() {
                             >
                               Open Google Meet link
                             </a>
-                          </div>
+                          </div> 
                         ) : null}
                         {scheduleState.applicationId === item.application_id ? (
                           <div className="schedule-panel">
