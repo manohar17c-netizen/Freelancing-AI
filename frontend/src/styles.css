@@ -179,6 +179,7 @@ label {
 }
 
 input,
+select,
 textarea,
 button {
   width: 100%;
@@ -189,10 +190,22 @@ button {
 }
 
 input,
+select,
 textarea {
   border: 1px solid #ccb8f8;
   background: var(--surface-soft);
   color: var(--text);
+}
+
+.timeline-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 0.35rem 0 0.9rem;
+}
+
+.timeline-grid label {
+  margin-bottom: 0.35rem;
 }
 
 button {
@@ -421,7 +434,12 @@ thead {
   display: flex;
   gap: 1rem;
   align-items: flex-end;
+  justify-content: space-between;
   margin-bottom: 1rem;
+}
+
+.jobs-search {
+  flex: 1;
 }
 
 .jobs-search label {
@@ -430,6 +448,7 @@ thead {
 
 .jobs-search input {
   margin: 0;
+  width: 100%;
 }
 
 .jobs-list {
@@ -444,6 +463,18 @@ thead {
   margin-top: 1rem;
 }
 
+.received-request-actions {
+  align-items: stretch;
+}
+
+.received-request-actions .btn-primary,
+.received-request-actions .btn-cancel {
+  flex: 1 1 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .requirement-card-actions {
   justify-content: flex-end;
 }
@@ -452,11 +483,8 @@ thead {
   display: flex;
   gap: 0.6rem;
   align-items: end;
-}
-
-.requirement-action-panel {
-  margin: 1rem 0;
-  padding: 1rem;
+  justify-content: flex-end;
+  flex-shrink: 0;
 }
 
 .profile-open-btn {
@@ -738,6 +766,13 @@ thead {
   gap: 0.75rem;
 }
 
+.job-status-pills {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.45rem;
+}
+
 .job-title {
   font-weight: 800;
 }
@@ -793,6 +828,12 @@ thead {
   background: #fff1f2;
   color: #be123c;
   border-color: #fecdd3;
+}
+
+.proposal-status-interview-scheduled {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border-color: #bfdbfe;
 }
 
 .received-requests-panel {
@@ -1045,6 +1086,29 @@ thead {
 
 .schedule-panel h3 {
   margin-top: 0;
+}
+
+.schedule-slot-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-top: 0.8rem;
+}
+
+.schedule-slot-btn {
+  width: auto;
+}
+
+.acceptance-note,
+.proposal-message {
+  margin-top: 0.75rem;
+}
+
+.scheduled-interview-note {
+  margin-top: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
 }
 
 .slot-row {

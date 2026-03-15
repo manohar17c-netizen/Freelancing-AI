@@ -22,6 +22,21 @@ function normalizeSkill(value) {
   return String(value || "").trim().toLowerCase();
 }
 
+function formatTimeline(years, months, days) {
+  const parts = [];
+  if (Number(years) > 0) parts.push(`${years} yr${Number(years) === 1 ? "" : "s"}`);
+  if (Number(months) > 0) parts.push(`${months} month${Number(months) === 1 ? "" : "s"}`);
+  if (Number(days) > 0) parts.push(`${days} day${Number(days) === 1 ? "" : "s"}`);
+  return parts.length ? parts.join(" ") : "Not set";
+}
+
+function formatInterviewWindow(start, end) {
+  if (!start) return "Interview scheduled";
+  const startText = String(start).replace("T", " ");
+  const endText = end ? String(end).replace("T", " ") : "";
+  return `${startText}${endText ? ` - ${endText}` : ""}`;
+}
+
 export default function FreelancerHome() {
   const apiBase = import.meta.env.DEV ? "http://127.0.0.1:8000" : "";
   const buildApiUrl = (path) => new URL(path, apiBase || window.location.origin);
@@ -111,7 +126,6 @@ export default function FreelancerHome() {
   useEffect(() => {
     if (authState.loading) return;
     if (!authState.user) return;
-    if (activeTab !== "My Proposals") return;
 
     async function loadMyProposals() {
       setProposalsState({ loading: true, items: [], error: "" });
@@ -133,7 +147,7 @@ export default function FreelancerHome() {
     }
 
     loadMyProposals();
-  }, [activeTab, apiBase, authState.loading, authState.user]);
+  }, [apiBase, authState.loading, authState.user]);
 
   const user = authState.user;
   const profile = profileState.profile;
@@ -203,6 +217,40 @@ export default function FreelancerHome() {
     window.open(youtubeUrl, "_blank", "noopener,noreferrer");
   }
 
+  async function loadMyProposalsNow() {
+    setProposalsState({ loading: true, items: [], error: "" });
+    try {
+      const response = await fetch(`${apiBase}/applications/me`, { credentials: "include" });
+      if (response.status === 401) {
+        window.location.href = `${apiBase}/auth/login?next=/ui/freelancer/home`;
+        return;
+      }
+      const data = await response.json();
+      if (!response.ok) {
+        setProposalsState({ loading: false, items: [], error: data?.detail || "Unable to load proposals." });
+        return;
+      }
+      setProposalsState({ loading: false, items: data.applications || [], error: "" });
+    } catch {
+      setProposalsState({ loading: false, items: [], error: "Network error while loading proposals." });
+    }
+  }
+
+  function getJobApplicationState(jobId) {
+    const proposal = (proposalsState.items || []).find((item) => item.job_id === jobId);
+    if (!proposal) return null;
+    if (proposal.interview?.meet_link) {
+      return { label: "Interview scheduled", className: "proposal-status-interview-scheduled" };
+    }
+    if (proposal.status === "accepted") {
+      return { label: "Accepted", className: "proposal-status-accepted" };
+    }
+    if (proposal.status === "rejected") {
+      return { label: "Rejected", className: "proposal-status-rejected" };
+    }
+    return { label: "Applied", className: "proposal-status-applied" };
+  }
+
   async function applyToJob(job) {
     try {
       const response = await fetch(`${apiBase}/jobs/${job.job_id}/apply`, {
@@ -219,6 +267,7 @@ export default function FreelancerHome() {
           item.job_id === job.job_id ? { ...item, has_applied: true } : item
         ),
       }));
+      await loadMyProposalsNow();
       setActiveTab("My Proposals");
     } catch (error) {
       setJobsState((prev) => ({ ...prev, error: error.message }));
@@ -347,13 +396,20 @@ export default function FreelancerHome() {
                 ) : null}
 
                 <div className="jobs-list">
-                  {(jobsState.jobs || []).map((job) => (
+                  {(jobsState.jobs || []).map((job) => {
+                    const applicationState = getJobApplicationState(job.job_id);
+                    return (
                     <article key={job.job_id} className="job-card">
                       <div className="job-card-top">
                         <div>
                           <div className="job-title-row">
                             <span className="job-title">Job {job.job_id}</span>
-                            <span className="job-match-pill">{job.match_percentage}% match</span>
+                            <div className="job-status-pills">
+                              <span className="job-match-pill">{job.match_percentage}% match</span>
+                              {applicationState ? (
+                                <span className={`proposal-status ${applicationState.className}`}>{applicationState.label}</span>
+                              ) : null}
+                            </div>
                           </div>
                           <p className="muted job-desc">{job.description}</p>
                         </div>
@@ -365,6 +421,12 @@ export default function FreelancerHome() {
                         </span>
                         <span className="job-meta">
                           <b>Min exp</b>: {job.min_experience_years || 0}+ yrs
+                        </span>
+                        <span className="job-meta">
+                          <b>Timezone</b>: {job.timezone || "Not set"}
+                        </span>
+                        <span className="job-meta">
+                          <b>Timeline</b>: {formatTimeline(job.project_timeline_years, job.project_timeline_months, job.project_timeline_days)}
                         </span>
                       </div>
 
@@ -384,13 +446,13 @@ export default function FreelancerHome() {
                           type="button"
                           className="btn-outline"
                           onClick={() => applyToJob(job)}
-                          disabled={Boolean(job.has_applied)}
+                          disabled={Boolean(job.has_applied || applicationState)}
                         >
-                          {job.has_applied ? "Applied" : "Apply"}
+                          {applicationState ? applicationState.label : job.has_applied ? "Applied" : "Apply"}
                         </button>
                       </div>
                     </article>
-                  ))}
+                  )})}
                 </div>
               </div>
             ) : activeTab === "Upskill" ? (
@@ -472,6 +534,12 @@ export default function FreelancerHome() {
                         <span className="job-meta">
                           <b>Required</b>: {(proposal.required_skills || []).length}
                         </span>
+                        <span className="job-meta">
+                          <b>Timezone</b>: {proposal.timezone || "Not set"}
+                        </span>
+                        <span className="job-meta">
+                          <b>Timeline</b>: {formatTimeline(proposal.project_timeline_years, proposal.project_timeline_months, proposal.project_timeline_days)}
+                        </span>
                       </div>
                       {(proposal.matched_skills || []).length ? (
                         <div className="job-skills">
@@ -481,6 +549,31 @@ export default function FreelancerHome() {
                             </span>
                           ))}
                         </div>
+                      ) : null}
+                      {proposal.status === "accepted" ? (
+                        <p className="success proposal-message">
+                          Client has accepted your request and will soon schedule a call.
+                        </p>
+                      ) : null}
+                      {proposal.interview?.meet_link ? (
+                        <div className="scheduled-interview-note">
+                          <p className="success proposal-message">
+                            Interview scheduled for {formatInterviewWindow(proposal.interview.slot_start, proposal.interview.slot_end)}.
+                          </p>
+                          <a
+                            className="text-link"
+                            href={proposal.interview.meet_link}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            Join Google Meet
+                          </a>
+                        </div>
+                      ) : null}
+                      {proposal.status === "rejected" ? (
+                        <p className="warning proposal-message">
+                          Client has rejected your request because your profile did not match the requirement closely enough.
+                        </p>
                       ) : null}
                     </article>
                   ))}

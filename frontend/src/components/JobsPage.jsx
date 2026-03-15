@@ -2,6 +2,41 @@ import React from "react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
+const TIMEZONE_OPTIONS = [
+  "Asia/Kolkata",
+  "UTC",
+  "America/New_York",
+  "America/Los_Angeles",
+  "Europe/London",
+  "Europe/Berlin",
+  "Asia/Dubai",
+  "Asia/Singapore",
+  "Australia/Sydney",
+];
+
+function formatTimeline(years, months, days) {
+  const parts = [];
+  if (Number(years) > 0) parts.push(`${years} yr${Number(years) === 1 ? "" : "s"}`);
+  if (Number(months) > 0) parts.push(`${months} month${Number(months) === 1 ? "" : "s"}`);
+  if (Number(days) > 0) parts.push(`${days} day${Number(days) === 1 ? "" : "s"}`);
+  return parts.length ? parts.join(" ") : "Not set";
+}
+
+function formatAvailabilitySlot(slot) {
+  if (!slot || typeof slot !== "object") return "Available slot";
+  const datePart = slot.date ? `${slot.date} ` : "";
+  const startPart = slot.start || "";
+  const endPart = slot.end || "";
+  return `${datePart}${startPart}${startPart && endPart ? " - " : ""}${endPart}`.trim();
+}
+
+function formatInterviewWindow(start, end) {
+  if (!start) return "Interview scheduled";
+  const startText = String(start).replace("T", " ");
+  const endText = end ? String(end).replace("T", " ") : "";
+  return `${startText}${endText ? ` - ${endText}` : ""}`;
+}
+
 export default function JobsPage() {
   const apiBase = import.meta.env.DEV ? "http://127.0.0.1:8000" : "";
   const buildApiUrl = (path) => new URL(path, apiBase || window.location.origin);
@@ -15,6 +50,10 @@ export default function JobsPage() {
   const [description, setDescription] = useState("");
   const [requiredSkills, setRequiredSkills] = useState("");
   const [minExperience, setMinExperience] = useState(0);
+  const [jobTimezone, setJobTimezone] = useState("Asia/Kolkata");
+  const [timelineYears, setTimelineYears] = useState(0);
+  const [timelineMonths, setTimelineMonths] = useState(0);
+  const [timelineDays, setTimelineDays] = useState(0);
 
   const [jobsState, setJobsState] = useState({ loading: true, items: [], error: "" });
   const [requestsState, setRequestsState] = useState({ loading: false, items: [], error: "" });
@@ -29,6 +68,10 @@ export default function JobsPage() {
     description: "",
     requiredSkills: "",
     minExperience: 0,
+    timezone: "Asia/Kolkata",
+    timelineYears: 0,
+    timelineMonths: 0,
+    timelineDays: 0,
   });
 
   const [freelancerFilters, setFreelancerFilters] = useState({
@@ -38,6 +81,15 @@ export default function JobsPage() {
     minExperience: "",
   });
   const [freelancersState, setFreelancersState] = useState({ loading: false, items: [], error: "" });
+  const [scheduleState, setScheduleState] = useState({
+    applicationId: "",
+    resumeId: "",
+    jobId: "",
+    freelancerEmail: "",
+    slots: [],
+    loading: false,
+    error: "",
+  });
   const user = authState.user;
   const initials = user?.name
     ? user.name
@@ -213,6 +265,10 @@ export default function JobsPage() {
         .map((value) => value.trim())
         .filter(Boolean),
       min_experience_years: Number(minExperience) || 0,
+      timezone: jobTimezone,
+      project_timeline_years: Number(timelineYears) || 0,
+      project_timeline_months: Number(timelineMonths) || 0,
+      project_timeline_days: Number(timelineDays) || 0,
       client_name: clientName.trim(),
       client_email: clientEmail.trim(),
       client_whatsapp: clientWhatsapp.trim(),
@@ -233,6 +289,10 @@ export default function JobsPage() {
       setDescription("");
       setRequiredSkills("");
       setMinExperience(0);
+      setJobTimezone("Asia/Kolkata");
+      setTimelineYears(0);
+      setTimelineMonths(0);
+      setTimelineDays(0);
       setJobSearch("");
       await refreshJobs();
       setShowCreateForm(false);
@@ -292,12 +352,136 @@ export default function JobsPage() {
       if (!response.ok) {
         throw new Error(data.detail || "Could not update request.");
       }
+      if (statusValue === "accepted") {
+        setStatus({ type: "success", message: "Freelancer accepted. You can schedule an interview now." });
+      } else {
+        setStatus({ type: "success", message: "Request rejected and removed from received requests." });
+      }
+      setRequestsState((prev) => ({
+        ...prev,
+        items:
+          statusValue === "rejected"
+            ? prev.items.filter((item) => item.application_id !== applicationId)
+            : prev.items.map((item) =>
+                item.application_id === applicationId ? { ...item, status: statusValue } : item
+              ),
+      }));
+      if (statusValue === "rejected" && scheduleState.applicationId === applicationId) {
+        setScheduleState({
+          applicationId: "",
+          resumeId: "",
+          jobId: "",
+          freelancerEmail: "",
+          slots: [],
+          loading: false,
+          error: "",
+        });
+      }
+    } catch (error) {
+      setStatus({ type: "warning", message: error.message });
+    }
+  }
+
+  async function openSchedulePanel(item) {
+    if (scheduleState.applicationId === item.application_id) {
+      setScheduleState({
+        applicationId: "",
+        resumeId: "",
+        jobId: "",
+        freelancerEmail: "",
+        slots: [],
+        loading: false,
+        error: "",
+      });
+      return;
+    }
+    setScheduleState({
+      applicationId: item.application_id,
+      resumeId: item.resume_id,
+      jobId: item.job_id,
+      freelancerEmail: item.freelancer_email,
+      slots: [],
+      loading: true,
+      error: "",
+    });
+    try {
+      const response = await fetch(`${apiBase}/freelancers/${item.resume_id}/slots`, { credentials: "include" });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.detail || "Could not load freelancer availability.");
+      }
+      setScheduleState({
+        applicationId: item.application_id,
+        resumeId: item.resume_id,
+        jobId: item.job_id,
+        freelancerEmail: item.freelancer_email,
+        slots: data.availability_slots || [],
+        loading: false,
+        error: "",
+      });
+    } catch (error) {
+      setScheduleState({
+        applicationId: item.application_id,
+        resumeId: item.resume_id,
+        jobId: item.job_id,
+        freelancerEmail: item.freelancer_email,
+        slots: [],
+        loading: false,
+        error: error.message,
+      });
+    }
+  }
+
+  async function scheduleInterviewForSlot(slot) {
+    if (!scheduleState.applicationId) return;
+    const datePrefix = slot?.date ? `${slot.date}T` : "";
+    const slotStart = `${datePrefix}${slot?.start || ""}`;
+    const slotEnd = `${datePrefix}${slot?.end || ""}`;
+    try {
+      const response = await fetch(`${apiBase}/interviews/schedule`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          job_id: scheduleState.jobId,
+          resume_id: scheduleState.resumeId,
+          client_email: clientEmail.trim() || user?.email || "",
+          freelancer_email: scheduleState.freelancerEmail,
+          slot_start: slotStart,
+          slot_end: slotEnd,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.detail || data.message || "Could not schedule interview.");
+      }
+      setStatus({ type: "success", message: "Interview scheduled successfully." });
       setRequestsState((prev) => ({
         ...prev,
         items: prev.items.map((item) =>
-          item.application_id === applicationId ? { ...item, status: statusValue } : item
+          item.application_id === scheduleState.applicationId
+            ? {
+                ...item,
+                interview: {
+                  slot_start: slotStart,
+                  slot_end: slotEnd,
+                  meet_link: data.meet_link || "",
+                  event_id: data.event_id || "",
+                  status: "scheduled",
+                },
+              }
+            : item
         ),
       }));
+      setScheduleState({
+        applicationId: "",
+        resumeId: "",
+        jobId: "",
+        freelancerEmail: "",
+        slots: [],
+        loading: false,
+        error: "",
+      });
     } catch (error) {
       setStatus({ type: "warning", message: error.message });
     }
@@ -309,12 +493,24 @@ export default function JobsPage() {
       description: job.description || "",
       requiredSkills: Array.isArray(job.required_skills) ? job.required_skills.join(", ") : "",
       minExperience: job.min_experience_years || 0,
+      timezone: job.timezone || "Asia/Kolkata",
+      timelineYears: job.project_timeline_years || 0,
+      timelineMonths: job.project_timeline_months || 0,
+      timelineDays: job.project_timeline_days || 0,
     });
   }
 
   function closeEditJob() {
     setEditingJob(null);
-    setEditForm({ description: "", requiredSkills: "", minExperience: 0 });
+    setEditForm({
+      description: "",
+      requiredSkills: "",
+      minExperience: 0,
+      timezone: "Asia/Kolkata",
+      timelineYears: 0,
+      timelineMonths: 0,
+      timelineDays: 0,
+    });
   }
 
   async function saveEditedJob(event) {
@@ -332,6 +528,10 @@ export default function JobsPage() {
             .map((item) => item.trim())
             .filter(Boolean),
           min_experience_years: Number(editForm.minExperience) || 0,
+          timezone: editForm.timezone,
+          project_timeline_years: Number(editForm.timelineYears) || 0,
+          project_timeline_months: Number(editForm.timelineMonths) || 0,
+          project_timeline_days: Number(editForm.timelineDays) || 0,
           client_name: clientName.trim(),
           client_email: clientEmail.trim(),
           client_whatsapp: clientWhatsapp.trim(),
@@ -462,6 +662,49 @@ export default function JobsPage() {
                 onChange={(event) => setMinExperience(event.target.value)}
               />
 
+              <label htmlFor="job-timezone">Timezone</label>
+              <select id="job-timezone" value={jobTimezone} onChange={(event) => setJobTimezone(event.target.value)}>
+                {TIMEZONE_OPTIONS.map((timezone) => (
+                  <option key={timezone} value={timezone}>
+                    {timezone}
+                  </option>
+                ))}
+              </select>
+
+              <label>Project timeline</label>
+              <div className="timeline-grid">
+                <div>
+                  <label htmlFor="timeline-years">Years</label>
+                  <input
+                    id="timeline-years"
+                    type="number"
+                    min={0}
+                    value={timelineYears}
+                    onChange={(event) => setTimelineYears(event.target.value)}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="timeline-months">Months</label>
+                  <input
+                    id="timeline-months"
+                    type="number"
+                    min={0}
+                    value={timelineMonths}
+                    onChange={(event) => setTimelineMonths(event.target.value)}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="timeline-days">Days</label>
+                  <input
+                    id="timeline-days"
+                    type="number"
+                    min={0}
+                    value={timelineDays}
+                    onChange={(event) => setTimelineDays(event.target.value)}
+                  />
+                </div>
+              </div>
+
               <button type="submit">Create first requirement</button>
             </form>
           ) : (
@@ -471,9 +714,6 @@ export default function JobsPage() {
                   <div className="modal-card" onClick={(event) => event.stopPropagation()}>
                     <div className="job-title-row">
                       <h2>Edit requirement</h2>
-                      <button type="button" className="btn-cancel" onClick={closeEditJob}>
-                        Close
-                      </button>
                     </div>
                     <p className="muted">Requirement ID: {editingJob.job_id}</p>
                     <form onSubmit={saveEditedJob}>
@@ -502,6 +742,53 @@ export default function JobsPage() {
                         value={editForm.minExperience}
                         onChange={(e) => setEditForm((prev) => ({ ...prev, minExperience: e.target.value }))}
                       />
+
+                      <label htmlFor="edit_job_timezone">Timezone</label>
+                      <select
+                        id="edit_job_timezone"
+                        value={editForm.timezone}
+                        onChange={(e) => setEditForm((prev) => ({ ...prev, timezone: e.target.value }))}
+                      >
+                        {TIMEZONE_OPTIONS.map((timezone) => (
+                          <option key={timezone} value={timezone}>
+                            {timezone}
+                          </option>
+                        ))}
+                      </select>
+
+                      <label>Project timeline</label>
+                      <div className="timeline-grid">
+                        <div>
+                          <label htmlFor="edit_timeline_years">Years</label>
+                          <input
+                            id="edit_timeline_years"
+                            type="number"
+                            min={0}
+                            value={editForm.timelineYears}
+                            onChange={(e) => setEditForm((prev) => ({ ...prev, timelineYears: e.target.value }))}
+                          />
+                        </div>
+                        <div>
+                          <label htmlFor="edit_timeline_months">Months</label>
+                          <input
+                            id="edit_timeline_months"
+                            type="number"
+                            min={0}
+                            value={editForm.timelineMonths}
+                            onChange={(e) => setEditForm((prev) => ({ ...prev, timelineMonths: e.target.value }))}
+                          />
+                        </div>
+                        <div>
+                          <label htmlFor="edit_timeline_days">Days</label>
+                          <input
+                            id="edit_timeline_days"
+                            type="number"
+                            min={0}
+                            value={editForm.timelineDays}
+                            onChange={(e) => setEditForm((prev) => ({ ...prev, timelineDays: e.target.value }))}
+                          />
+                        </div>
+                      </div>
 
                       <div className="form-actions">
                         <button type="submit">Save changes</button>
@@ -642,10 +929,62 @@ export default function JobsPage() {
                         value={minExperience}
                         onChange={(event) => setMinExperience(event.target.value)}
                       />
+
+                      <label htmlFor="job-timezone_manage">Timezone</label>
+                      <select id="job-timezone_manage" value={jobTimezone} onChange={(event) => setJobTimezone(event.target.value)}>
+                        {TIMEZONE_OPTIONS.map((timezone) => (
+                          <option key={timezone} value={timezone}>
+                            {timezone}
+                          </option>
+                        ))}
+                      </select>
+
+                      <label>Project timeline</label>
+                      <div className="timeline-grid">
+                        <div>
+                          <label htmlFor="timeline-years_manage">Years</label>
+                          <input
+                            id="timeline-years_manage"
+                            type="number"
+                            min={0}
+                            value={timelineYears}
+                            onChange={(event) => setTimelineYears(event.target.value)}
+                          />
+                        </div>
+                        <div>
+                          <label htmlFor="timeline-months_manage">Months</label>
+                          <input
+                            id="timeline-months_manage"
+                            type="number"
+                            min={0}
+                            value={timelineMonths}
+                            onChange={(event) => setTimelineMonths(event.target.value)}
+                          />
+                        </div>
+                        <div>
+                          <label htmlFor="timeline-days_manage">Days</label>
+                          <input
+                            id="timeline-days_manage"
+                            type="number"
+                            min={0}
+                            value={timelineDays}
+                            onChange={(event) => setTimelineDays(event.target.value)}
+                          />
+                        </div>
+                      </div>
                     </form>
                   ) : null}
 
-                  <div className="panel requirement-action-panel">
+                  <div className="jobs-toolbar">
+                    <div className="jobs-search">
+                      <label htmlFor="clientJobSearch">Search requirements</label>
+                      <input
+                        id="clientJobSearch"
+                        value={jobSearch}
+                        onChange={(e) => setJobSearch(e.target.value)}
+                        placeholder="Search by skill or position"
+                      />
+                    </div>
                     <div className="toolbar-actions">
                       <button
                         type="button"
@@ -665,18 +1004,6 @@ export default function JobsPage() {
                           Close
                         </button>
                       ) : null}
-                    </div>
-                  </div>
-
-                  <div className="jobs-toolbar">
-                    <div className="jobs-search">
-                      <label htmlFor="clientJobSearch">Search requirements</label>
-                      <input
-                        id="clientJobSearch"
-                        value={jobSearch}
-                        onChange={(e) => setJobSearch(e.target.value)}
-                        placeholder="Search by skill or position"
-                      />
                     </div>
                   </div>
 
@@ -705,6 +1032,12 @@ export default function JobsPage() {
                           </span>
                           <span className="job-meta">
                             <b>Required skills</b>: {(job.required_skills || []).length}
+                          </span>
+                          <span className="job-meta">
+                            <b>Timezone</b>: {job.timezone || "Not set"}
+                          </span>
+                          <span className="job-meta">
+                            <b>Timeline</b>: {formatTimeline(job.project_timeline_years, job.project_timeline_months, job.project_timeline_days)}
                           </span>
                         </div>
                         {(job.required_skills || []).length ? (
@@ -785,15 +1118,25 @@ export default function JobsPage() {
                         <Link className="text-link profile-inline-link" to={`/freelancers/${item.resume_id}`}>
                           View profile
                         </Link>
-                        <div className="job-card-actions">
-                          <button
-                            type="button"
-                            className="btn-primary"
-                            onClick={() => updateRequestStatus(item.application_id, "accepted")}
-                            disabled={item.status === "accepted"}
-                          >
-                            Accept
-                          </button>
+                        <div className="job-card-actions received-request-actions">
+                          {item.status === "accepted" ? (
+                            <button
+                              type="button"
+                              className="btn-primary"
+                              onClick={() => openSchedulePanel(item)}
+                            >
+                              {scheduleState.applicationId === item.application_id ? "Hide schedule" : "Schedule interview"}
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              className="btn-primary"
+                              onClick={() => updateRequestStatus(item.application_id, "accepted")}
+                              disabled={item.status === "accepted"}
+                            >
+                              Accept
+                            </button>
+                          )}
                           <button
                             type="button"
                             className="btn-cancel"
@@ -803,6 +1146,51 @@ export default function JobsPage() {
                             Reject
                           </button>
                         </div>
+                        {item.status === "accepted" ? (
+                          <p className="muted acceptance-note">
+                            Freelancer accepted for this project. Schedule an interview to take the conversation forward.
+                          </p>
+                        ) : null}
+                        {item.interview?.meet_link ? (
+                          <div className="scheduled-interview-note">
+                            <p className="success proposal-message">
+                              Interview scheduled for {formatInterviewWindow(item.interview.slot_start, item.interview.slot_end)}.
+                            </p>
+                            <a
+                              className="text-link"
+                              href={item.interview.meet_link}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              Open Google Meet link
+                            </a>
+                          </div>
+                        ) : null}
+                        {scheduleState.applicationId === item.application_id ? (
+                          <div className="schedule-panel">
+                            <h3>Schedule interview</h3>
+                            <p className="muted">Choose one of the freelancer&apos;s availability slots.</p>
+                            {scheduleState.loading ? <p className="muted">Loading available slots...</p> : null}
+                            {scheduleState.error ? <p className="warning">{scheduleState.error}</p> : null}
+                            {!scheduleState.loading && !scheduleState.error && scheduleState.slots.length === 0 ? (
+                              <p className="muted">No availability slots found yet for this freelancer.</p>
+                            ) : null}
+                            {!scheduleState.loading && scheduleState.slots.length > 0 ? (
+                              <div className="schedule-slot-list">
+                                {scheduleState.slots.map((slot, index) => (
+                                  <button
+                                    key={`${item.application_id}-${slot.date || "slot"}-${slot.start || index}`}
+                                    type="button"
+                                    className="btn-outline schedule-slot-btn"
+                                    onClick={() => scheduleInterviewForSlot(slot)}
+                                  >
+                                    {formatAvailabilitySlot(slot)}
+                                  </button>
+                                ))}
+                              </div>
+                            ) : null}
+                          </div>
+                        ) : null}
                       </article>
                     ))}
                   </div>

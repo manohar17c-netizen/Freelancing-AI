@@ -4,6 +4,7 @@ import json
 import os
 import secrets
 import ssl
+import time
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -22,6 +23,12 @@ auth_router = APIRouter(prefix="/auth", tags=["auth"])
 
 _user_sessions: Dict[str, Dict[str, str]] = {}
 _pending_oauth_states: Dict[str, Dict[str, str]] = {}
+GOOGLE_SCOPES = [
+    "openid",
+    "email",
+    "profile",
+    "https://www.googleapis.com/auth/calendar.events",
+]
 
 
 def _load_env_file() -> None:
@@ -74,6 +81,13 @@ def get_authenticated_user(request: Request) -> Optional[Dict[str, str]]:
     if not token:
         return None
     return _user_sessions.get(token)
+
+
+def _get_session_token(request: Request) -> Optional[str]:
+    token = request.cookies.get(AUTH_COOKIE)
+    if not token:
+        return None
+    return token if token in _user_sessions else None
 
 
 def resolve_user_home(user: Optional[Dict[str, str]]) -> str:
@@ -248,6 +262,32 @@ def _exchange_google_code_for_token(code: str, redirect_uri: str) -> Dict[str, s
         raise RuntimeError(f"token_exchange_network_error: {exc}") from exc
 
 
+def _refresh_google_access_token(refresh_token: str) -> Dict[str, str]:
+    payload = urllib.parse.urlencode(
+        {
+            "client_id": os.environ["GOOGLE_CLIENT_ID"],
+            "client_secret": os.environ["GOOGLE_CLIENT_SECRET"],
+            "refresh_token": refresh_token,
+            "grant_type": "refresh_token",
+        }
+    ).encode("utf-8")
+
+    req = urllib.request.Request(
+        "https://oauth2.googleapis.com/token",
+        data=payload,
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        method="POST",
+    )
+    try:
+        with _urlopen(req, timeout=12) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="ignore")
+        raise RuntimeError(f"token_refresh_failed: {exc.code} {body}") from exc
+    except URLError as exc:
+        raise RuntimeError(f"token_refresh_network_error: {exc}") from exc
+
+
 def _fetch_google_user_info(access_token: str) -> Dict[str, str]:
     req = urllib.request.Request(
         "https://openidconnect.googleapis.com/v1/userinfo",
@@ -279,7 +319,47 @@ def current_user(request: Request):
     user = get_authenticated_user(request)
     if not user:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    return {"authenticated": True, "user": user, "home": resolve_user_home(user)}
+    safe_user = {
+        "name": user.get("name", ""),
+        "email": user.get("email", ""),
+        "provider": user.get("provider", ""),
+        "picture": user.get("picture", ""),
+        "role": user.get("role", "freelancer"),
+    }
+    return {"authenticated": True, "user": safe_user, "home": resolve_user_home(user)}
+
+
+def get_google_access_token_for_request(request: Request) -> str:
+    session_token = _get_session_token(request)
+    if not session_token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    session = _user_sessions.get(session_token)
+    if not session:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    access_token = session.get("google_access_token", "")
+    refresh_token = session.get("google_refresh_token", "")
+    expires_at = int(session.get("google_token_expires_at", "0") or 0)
+
+    if access_token and expires_at > int(time.time()) + 60:
+        return access_token
+    if not refresh_token:
+        raise HTTPException(
+            status_code=400,
+            detail="Google Calendar permission is not available for this session. Please sign in again and grant calendar access.",
+        )
+
+    try:
+        token_payload = _refresh_google_access_token(refresh_token)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Could not refresh Google access token: {exc}") from exc
+
+    refreshed_access_token = token_payload.get("access_token", "")
+    if not refreshed_access_token:
+        raise HTTPException(status_code=400, detail="Google did not return a refreshed access token.")
+    session["google_access_token"] = refreshed_access_token
+    session["google_token_expires_at"] = str(int(time.time()) + int(token_payload.get("expires_in", 3600) or 3600))
+    return refreshed_access_token
 
 
 @auth_router.get("/login", response_class=HTMLResponse)
@@ -318,10 +398,11 @@ def start_login(provider: str, request: Request, next: str = FREELANCER_INTAKE_P
         "client_id": os.environ["GOOGLE_CLIENT_ID"],
         "redirect_uri": redirect_uri,
         "response_type": "code",
-        "scope": "openid email profile",
+        "scope": " ".join(GOOGLE_SCOPES),
         "state": state,
-        "access_type": "online",
+        "access_type": "offline",
         "include_granted_scopes": "true",
+        "prompt": "consent",
     }
     return RedirectResponse("https://accounts.google.com/o/oauth2/v2/auth?" + urllib.parse.urlencode(params))
 
@@ -356,6 +437,8 @@ def oauth_callback(request: Request, provider: str, state: str = "", code: str =
         resolved_name = profile.get("name", "Google User")
         resolved_email = profile.get("email", "user@google.login")
         resolved_picture = profile.get("picture", "")
+        refresh_token = token_payload.get("refresh_token", "")
+        expires_in = int(token_payload.get("expires_in", 3600) or 3600)
     except Exception as exc:  # pragma: no cover
         return HTMLResponse(_build_error_page(f"Google sign-in failed: {exc}"), status_code=400)
 
@@ -379,6 +462,9 @@ def oauth_callback(request: Request, provider: str, state: str = "", code: str =
         "provider": provider,
         "picture": resolved_picture,
         "role": role,
+        "google_access_token": access_token,
+        "google_refresh_token": refresh_token,
+        "google_token_expires_at": str(int(time.time()) + expires_in),
     }
 
     response = RedirectResponse(next_path, status_code=302)

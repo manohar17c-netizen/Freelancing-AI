@@ -65,12 +65,26 @@ def init_db() -> None:
                 description TEXT NOT NULL,
                 required_skills_json TEXT NOT NULL DEFAULT '[]',
                 min_experience_years INTEGER NOT NULL DEFAULT 0,
+                timezone TEXT NOT NULL DEFAULT '',
+                project_timeline_years INTEGER NOT NULL DEFAULT 0,
+                project_timeline_months INTEGER NOT NULL DEFAULT 0,
+                project_timeline_days INTEGER NOT NULL DEFAULT 0,
                 is_live INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
                 updated_at TEXT NOT NULL DEFAULT (datetime('now'))
             )
             """
         )
+        for col, col_type in [
+            ("timezone", "TEXT NOT NULL DEFAULT ''"),
+            ("project_timeline_years", "INTEGER NOT NULL DEFAULT 0"),
+            ("project_timeline_months", "INTEGER NOT NULL DEFAULT 0"),
+            ("project_timeline_days", "INTEGER NOT NULL DEFAULT 0"),
+        ]:
+            try:
+                connection.execute(f"ALTER TABLE jobs ADD COLUMN {col} {col_type}")
+            except sqlite3.OperationalError:
+                pass
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS client_profiles (
@@ -99,12 +113,22 @@ def init_db() -> None:
                 freelancer_email TEXT NOT NULL,
                 slot_start TEXT NOT NULL,
                 slot_end TEXT NOT NULL,
+                meet_link TEXT NOT NULL DEFAULT '',
+                event_id TEXT NOT NULL DEFAULT '',
                 status TEXT NOT NULL DEFAULT 'scheduled',
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
                 UNIQUE(job_id, resume_id, slot_start)
             )
             """
         )
+        for col, col_type in [
+            ("meet_link", "TEXT NOT NULL DEFAULT ''"),
+            ("event_id", "TEXT NOT NULL DEFAULT ''"),
+        ]:
+            try:
+                connection.execute(f"ALTER TABLE interviews ADD COLUMN {col} {col_type}")
+            except sqlite3.OperationalError:
+                pass
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS applications (
@@ -411,7 +435,9 @@ def list_jobs(limit: int = 50, q: str = "", live_only: bool = True) -> List[Dict
     with _get_connection() as connection:
         sql = """
             SELECT job_id, client_name, client_email, client_whatsapp, description,
-                   required_skills_json, min_experience_years, is_live, created_at, updated_at
+                   required_skills_json, min_experience_years, timezone,
+                   project_timeline_years, project_timeline_months, project_timeline_days,
+                   is_live, created_at, updated_at
             FROM jobs
         """
         where = []
@@ -444,6 +470,10 @@ def list_jobs(limit: int = 50, q: str = "", live_only: bool = True) -> List[Dict
                 "description": row_d.get("description", ""),
                 "required_skills": required_skills if isinstance(required_skills, list) else [],
                 "min_experience_years": int(row_d.get("min_experience_years", 0) or 0),
+                "timezone": row_d.get("timezone", ""),
+                "project_timeline_years": int(row_d.get("project_timeline_years", 0) or 0),
+                "project_timeline_months": int(row_d.get("project_timeline_months", 0) or 0),
+                "project_timeline_days": int(row_d.get("project_timeline_days", 0) or 0),
                 "is_live": bool(row_d.get("is_live", 0)),
                 "created_at": row_d.get("created_at", ""),
                 "updated_at": row_d.get("updated_at", ""),
@@ -480,6 +510,10 @@ def list_jobs_for_client(client_email: str, client_name: str = "", limit: int = 
                     "description": row_d.get("description", ""),
                     "required_skills": required_skills if isinstance(required_skills, list) else [],
                     "min_experience_years": int(row_d.get("min_experience_years", 0) or 0),
+                    "timezone": row_d.get("timezone", ""),
+                    "project_timeline_years": int(row_d.get("project_timeline_years", 0) or 0),
+                    "project_timeline_months": int(row_d.get("project_timeline_months", 0) or 0),
+                    "project_timeline_days": int(row_d.get("project_timeline_days", 0) or 0),
                     "is_live": bool(row_d.get("is_live", 0)),
                     "created_at": row_d.get("created_at", ""),
                     "updated_at": row_d.get("updated_at", ""),
@@ -489,7 +523,9 @@ def list_jobs_for_client(client_email: str, client_name: str = "", limit: int = 
 
     base_sql = """
         SELECT job_id, client_name, client_email, client_whatsapp, description,
-               required_skills_json, min_experience_years, is_live, created_at, updated_at
+               required_skills_json, min_experience_years, timezone,
+               project_timeline_years, project_timeline_months, project_timeline_days,
+               is_live, created_at, updated_at
         FROM jobs
         WHERE {where_clause}
     """
@@ -537,13 +573,21 @@ def create_job(
     description: str,
     required_skills: List[str],
     min_experience_years: int = 0,
+    timezone: str = "",
+    project_timeline_years: int = 0,
+    project_timeline_months: int = 0,
+    project_timeline_days: int = 0,
     is_live: bool = False,
 ) -> None:
     with _get_connection() as connection:
         connection.execute(
             """
-            INSERT INTO jobs (job_id, client_name, client_email, client_whatsapp, description, required_skills_json, min_experience_years, is_live)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO jobs (
+                job_id, client_name, client_email, client_whatsapp, description,
+                required_skills_json, min_experience_years, timezone,
+                project_timeline_years, project_timeline_months, project_timeline_days, is_live
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(job_id) DO UPDATE SET
                 client_name=excluded.client_name,
                 client_email=excluded.client_email,
@@ -551,10 +595,27 @@ def create_job(
                 description=excluded.description,
                 required_skills_json=excluded.required_skills_json,
                 min_experience_years=excluded.min_experience_years,
+                timezone=excluded.timezone,
+                project_timeline_years=excluded.project_timeline_years,
+                project_timeline_months=excluded.project_timeline_months,
+                project_timeline_days=excluded.project_timeline_days,
                 is_live=excluded.is_live,
                 updated_at=datetime('now')
             """,
-            (job_id, client_name, client_email, client_whatsapp, description, json.dumps(required_skills), min_experience_years, 1 if is_live else 0),
+            (
+                job_id,
+                client_name,
+                client_email,
+                client_whatsapp,
+                description,
+                json.dumps(required_skills),
+                min_experience_years,
+                timezone,
+                max(project_timeline_years, 0),
+                max(project_timeline_months, 0),
+                max(project_timeline_days, 0),
+                1 if is_live else 0,
+            ),
         )
         connection.commit()
 
@@ -740,6 +801,13 @@ def delete_job(job_id: str, client_email: str) -> bool:
         return cur.rowcount > 0
 
 
+def delete_applications_for_job(job_id: str) -> None:
+    with _get_connection() as connection:
+        connection.execute("DELETE FROM applications WHERE job_id = ?", (job_id,))
+        connection.execute("DELETE FROM interviews WHERE job_id = ?", (job_id,))
+        connection.commit()
+
+
 def get_job(job_id: str) -> Dict[str, Any] | None:
     with _get_connection() as connection:
         row = connection.execute("SELECT * FROM jobs WHERE job_id=?", (job_id,)).fetchone()
@@ -758,26 +826,73 @@ def get_job(job_id: str) -> Dict[str, Any] | None:
         "description": row_d["description"],
         "required_skills": skills,
         "min_experience_years": int(row_d.get("min_experience_years", 0) or 0),
+        "timezone": row_d.get("timezone", ""),
+        "project_timeline_years": int(row_d.get("project_timeline_years", 0) or 0),
+        "project_timeline_months": int(row_d.get("project_timeline_months", 0) or 0),
+        "project_timeline_days": int(row_d.get("project_timeline_days", 0) or 0),
         "is_live": bool(row_d.get("is_live", 0)),
         "created_at": row_d.get("created_at", ""),
         "updated_at": row_d.get("updated_at", ""),
     }
 
 
-def schedule_interview(job_id: str, resume_id: str, client_email: str, freelancer_email: str, slot_start: str, slot_end: str) -> bool:
+def schedule_interview(
+    job_id: str,
+    resume_id: str,
+    client_email: str,
+    freelancer_email: str,
+    slot_start: str,
+    slot_end: str,
+    meet_link: str = "",
+    event_id: str = "",
+) -> bool:
     with _get_connection() as connection:
         try:
             connection.execute(
                 """
-                INSERT INTO interviews (job_id, resume_id, client_email, freelancer_email, slot_start, slot_end)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO interviews (
+                    job_id, resume_id, client_email, freelancer_email,
+                    slot_start, slot_end, meet_link, event_id
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (job_id, resume_id, client_email, freelancer_email, slot_start, slot_end),
+                (job_id, resume_id, client_email, freelancer_email, slot_start, slot_end, meet_link, event_id),
             )
             connection.commit()
             return True
         except sqlite3.IntegrityError:
             return False
+
+
+def get_interview(job_id: str, resume_id: str) -> Dict[str, Any] | None:
+    with _get_connection() as connection:
+        row = connection.execute(
+            """
+            SELECT job_id, resume_id, client_email, freelancer_email, slot_start, slot_end,
+                   COALESCE(meet_link, '') AS meet_link,
+                   COALESCE(event_id, '') AS event_id,
+                   status, created_at
+            FROM interviews
+            WHERE job_id = ? AND resume_id = ?
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (job_id, resume_id),
+        ).fetchone()
+    if not row:
+        return None
+    return {
+        "job_id": row["job_id"],
+        "resume_id": row["resume_id"],
+        "client_email": row["client_email"],
+        "freelancer_email": row["freelancer_email"],
+        "slot_start": row["slot_start"],
+        "slot_end": row["slot_end"],
+        "meet_link": row["meet_link"],
+        "event_id": row["event_id"],
+        "status": row["status"],
+        "created_at": row["created_at"],
+    }
 
 
 def get_freelancer_by_resume_id(resume_id: str) -> Dict[str, Any] | None:

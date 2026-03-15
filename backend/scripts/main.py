@@ -4,18 +4,25 @@ import hashlib
 import json
 import io
 import re
+import ssl
 import uuid
+import urllib.request
+from datetime import datetime
+from urllib.error import HTTPError, URLError
 from typing import Dict, List, Tuple
+from zoneinfo import ZoneInfo
 
 from fastapi import Body, FastAPI, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
 
 from auth import auth_router
-from auth import get_authenticated_user
+from auth import get_authenticated_user, get_google_access_token_for_request
 from database import (
     create_application,
     create_job,
     delete_job,
+    delete_applications_for_job,
+    get_interview,
     get_client_profile,
     get_client_profile_by_name,
     get_freelancer_by_email,
@@ -52,6 +59,11 @@ try:
 except ImportError:  # pragma: no cover
     Document = None
 
+try:
+    import certifi
+except ImportError:  # pragma: no cover
+    certifi = None
+
 
 app = FastAPI(title="Freelancing AI Matching API")
 app.include_router(auth_router)
@@ -86,6 +98,10 @@ class JobPost(BaseModel):
     description: str = Field(..., min_length=10)
     required_skills: List[str] = Field(default_factory=list)
     min_experience_years: int = 0
+    timezone: str = Field(default="", min_length=0)
+    project_timeline_years: int = 0
+    project_timeline_months: int = 0
+    project_timeline_days: int = 0
     client_name: str = Field(default="", min_length=0)
     client_email: str = Field(default="", min_length=0)
     client_whatsapp: str = Field(default="", min_length=0)
@@ -123,6 +139,10 @@ class JobUpdateRequest(BaseModel):
     description: str = Field(..., min_length=10)
     required_skills: List[str] = Field(default_factory=list)
     min_experience_years: int = 0
+    timezone: str = Field(default="", min_length=0)
+    project_timeline_years: int = 0
+    project_timeline_months: int = 0
+    project_timeline_days: int = 0
     client_name: str = Field(default="", min_length=0)
     client_email: str = Field(default="", min_length=0)
     client_whatsapp: str = Field(default="", min_length=0)
@@ -388,6 +408,10 @@ def post_job(job: JobPost) -> Dict:
         description=job.description,
         required_skills=job.required_skills,
         min_experience_years=job.min_experience_years,
+        timezone=job.timezone.strip(),
+        project_timeline_years=max(job.project_timeline_years, 0),
+        project_timeline_months=max(job.project_timeline_months, 0),
+        project_timeline_days=max(job.project_timeline_days, 0),
         is_live=False,
     )
     upsert_client_profile(
@@ -513,7 +537,7 @@ def get_my_client_profile(request: Request) -> Dict:
                 "role_title": "",
                 "hiring_goals": first_job.get("description", ""),
                 "preferred_skills": first_job.get("required_skills", []),
-                "timezone": "",
+                "timezone": first_job.get("timezone", ""),
                 "budget_notes": "",
             },
         }
@@ -695,6 +719,7 @@ def _build_whatsapp_message(job_preview: str, matches: List[Dict]) -> str:
 def _build_application_view(application: Dict, freelancer: Dict | None, job: Dict | None) -> Dict:
     freelancer = freelancer or {}
     job = job or {}
+    interview = get_interview(application.get("job_id", ""), application.get("resume_id", ""))
     freelancer_skills = {
         str(skill).strip().lower()
         for skill in (freelancer.get("skills") or [])
@@ -712,6 +737,10 @@ def _build_application_view(application: Dict, freelancer: Dict | None, job: Dic
         **application,
         "job_description": job.get("description", ""),
         "client_name": job.get("client_name", "Client"),
+        "timezone": job.get("timezone", ""),
+        "project_timeline_years": job.get("project_timeline_years", 0),
+        "project_timeline_months": job.get("project_timeline_months", 0),
+        "project_timeline_days": job.get("project_timeline_days", 0),
         "freelancer_name": freelancer.get("name", "Freelancer"),
         "headline": freelancer.get("headline", "Freelancer"),
         "experience_years": freelancer.get("experience_years", 0),
@@ -721,6 +750,7 @@ def _build_application_view(application: Dict, freelancer: Dict | None, job: Dic
         "matched_skills": matched_skills,
         "missing_skills": missing_skills,
         "skill_match_percent": skill_match_percent,
+        "interview": interview,
     }
 
 
@@ -728,6 +758,8 @@ def _build_application_view(application: Dict, freelancer: Dict | None, job: Dic
 def make_job_live_endpoint(job_id: str, body: MakeJobLiveRequest | None = Body(None)) -> Dict:
     is_live = body.is_live if body else True
     if set_job_live(job_id, is_live):
+        if not is_live:
+            delete_applications_for_job(job_id)
         return {"message": f"Job is now {'live' if is_live else 'draft'}", "job_id": job_id}
     raise HTTPException(status_code=404, detail="Job not found")
 
@@ -738,6 +770,7 @@ def delete_job_endpoint(job_id: str, request: Request) -> Dict:
     if not user:
         raise HTTPException(status_code=401, detail="Not authenticated")
     if delete_job(job_id, user.get("email", "")):
+        delete_applications_for_job(job_id)
         return {"message": "Job deleted", "job_id": job_id}
     raise HTTPException(status_code=404, detail="Job not found")
 
@@ -763,6 +796,10 @@ def update_job_endpoint(job_id: str, body: JobUpdateRequest, request: Request) -
         description=body.description,
         required_skills=body.required_skills,
         min_experience_years=max(body.min_experience_years, 0),
+        timezone=body.timezone or job.get("timezone", ""),
+        project_timeline_years=max(body.project_timeline_years, 0),
+        project_timeline_months=max(body.project_timeline_months, 0),
+        project_timeline_days=max(body.project_timeline_days, 0),
         is_live=bool(job.get("is_live", False)),
     )
     return {"message": "Requirement updated", "job": get_job(job_id)}
@@ -803,6 +840,8 @@ def get_my_applications(request: Request) -> Dict:
     for application in applications:
         freelancer = get_freelancer_by_resume_id(application["resume_id"])
         job = get_job(application["job_id"])
+        if not job or not job.get("is_live", False):
+            continue
         detailed.append(_build_application_view(application, freelancer, job))
     return {"applications": detailed}
 
@@ -815,6 +854,8 @@ def get_received_applications(request: Request) -> Dict:
     applications = list_applications_for_client(user.get("email", ""))
     detailed = []
     for application in applications:
+        if application.get("status") == "rejected":
+            continue
         freelancer = get_freelancer_by_resume_id(application["resume_id"])
         job = get_job(application["job_id"])
         detailed.append(_build_application_view(application, freelancer, job))
@@ -843,11 +884,85 @@ def _normalize_time(t: str) -> str:
     return str(t)[:5]
 
 
+def _ssl_context() -> ssl.SSLContext:
+    if certifi is not None:
+        return ssl.create_default_context(cafile=certifi.where())
+    return ssl.create_default_context()
+
+
+def _create_google_meet_event(
+    *,
+    access_token: str,
+    summary: str,
+    description: str,
+    start_iso: str,
+    end_iso: str,
+    timezone: str,
+    attendee_email: str,
+) -> Dict:
+    payload = {
+        "summary": summary,
+        "description": description,
+        "start": {"dateTime": start_iso, "timeZone": timezone},
+        "end": {"dateTime": end_iso, "timeZone": timezone},
+        "attendees": [{"email": attendee_email}],
+        "conferenceData": {
+            "createRequest": {
+                "requestId": f"meet-{uuid.uuid4().hex[:12]}",
+                "conferenceSolutionKey": {"type": "hangoutsMeet"},
+            }
+        },
+    }
+    req = urllib.request.Request(
+        "https://www.googleapis.com/calendar/v3/calendars/primary/events?conferenceDataVersion=1&sendUpdates=all",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15, context=_ssl_context()) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="ignore")
+        raise HTTPException(status_code=400, detail=f"Google Calendar event creation failed: {exc.code} {body}") from exc
+    except URLError as exc:
+        raise HTTPException(status_code=400, detail=f"Google Calendar network error: {exc}") from exc
+
+
+def _to_rfc3339(value: str, timezone: str) -> str:
+    tz_name = timezone or "UTC"
+    try:
+        tz = ZoneInfo(tz_name)
+    except Exception:
+        tz = ZoneInfo("UTC")
+    raw = str(value or "").strip()
+    for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M"):
+        try:
+            parsed = datetime.strptime(raw, fmt)
+            return parsed.replace(tzinfo=tz).isoformat()
+        except ValueError:
+            continue
+    raise HTTPException(status_code=400, detail=f"Invalid interview date/time format: {value}")
+
+
 @app.post("/interviews/schedule")
-def schedule_interview_endpoint(req: ScheduleInterviewRequest) -> Dict:
+def schedule_interview_endpoint(req: ScheduleInterviewRequest, request: Request) -> Dict:
+    user = get_authenticated_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
     freelancer = get_freelancer_by_resume_id(req.resume_id)
     if not freelancer:
         raise HTTPException(status_code=404, detail="Freelancer not found")
+    job = get_job(req.job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    same_email = str(job.get("client_email", "")).strip().lower() == str(user.get("email", "")).strip().lower()
+    same_name = str(job.get("client_name", "")).strip().lower() == str(user.get("name", "")).strip().lower()
+    if not (same_email or same_name):
+        raise HTTPException(status_code=403, detail="You cannot schedule interviews for this requirement.")
     valid_slots = freelancer.get("availability_slots") or []
     req_start = _normalize_time(req.slot_start)
     req_end = _normalize_time(req.slot_end)
@@ -861,8 +976,46 @@ def schedule_interview_endpoint(req: ScheduleInterviewRequest) -> Dict:
             "message": "Slot not in freelancer availability. Use one of their listed slots.",
             "availability_slots": valid_slots,
         }
-    if schedule_interview(req.job_id, req.resume_id, req.client_email, req.freelancer_email, req.slot_start, req.slot_end):
-        return {"message": "Interview scheduled", "job_id": req.job_id, "resume_id": req.resume_id}
+    if "T" not in req.slot_start or "T" not in req.slot_end:
+        raise HTTPException(status_code=400, detail="Interview scheduling requires a date and time in ISO format.")
+
+    access_token = get_google_access_token_for_request(request)
+    timezone = str(job.get("timezone", "") or "UTC")
+    start_rfc3339 = _to_rfc3339(req.slot_start, timezone)
+    end_rfc3339 = _to_rfc3339(req.slot_end, timezone)
+    event = _create_google_meet_event(
+        access_token=access_token,
+        summary=f"FreelancingAI interview for {job.get('job_id', req.job_id)}",
+        description=f"Interview between {job.get('client_name', 'Client')} and {freelancer.get('name', 'Freelancer')}.",
+        start_iso=start_rfc3339,
+        end_iso=end_rfc3339,
+        timezone=timezone,
+        attendee_email=req.freelancer_email,
+    )
+    meet_link = (
+        event.get("hangoutLink")
+        or ((event.get("conferenceData") or {}).get("entryPoints") or [{}])[0].get("uri", "")
+    )
+    event_id = event.get("id", "")
+    if schedule_interview(
+        req.job_id,
+        req.resume_id,
+        user.get("email", "") or req.client_email,
+        req.freelancer_email,
+        start_rfc3339,
+        end_rfc3339,
+        meet_link=meet_link,
+        event_id=event_id,
+    ):
+        return {
+            "message": "Interview scheduled",
+            "job_id": req.job_id,
+            "resume_id": req.resume_id,
+            "slot_start": start_rfc3339,
+            "slot_end": end_rfc3339,
+            "meet_link": meet_link,
+            "event_id": event_id,
+        }
     raise HTTPException(status_code=400, detail="Could not schedule (slot may already be booked)")
 
 
