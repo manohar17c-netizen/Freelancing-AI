@@ -1,19 +1,25 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import io
 import re
 import uuid
 from typing import Dict, List, Tuple
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
 from auth import auth_router
 from database import (
+    create_job,
+    get_freelancer_by_resume_id,
+    get_job,
     init_db,
     list_freelancer_profiles,
     load_freelancer_records,
+    schedule_interview,
+    set_job_live,
     upsert_freelancer_record,
 )
 from ui_routes import ui_router
@@ -62,6 +68,22 @@ class JobPost(BaseModel):
     description: str = Field(..., min_length=10)
     required_skills: List[str] = Field(default_factory=list)
     min_experience_years: int = 0
+    client_name: str = Field(default="", min_length=0)
+    client_email: str = Field(default="", min_length=0)
+    client_whatsapp: str = Field(default="", min_length=0)
+
+
+class ScheduleInterviewRequest(BaseModel):
+    job_id: str
+    resume_id: str
+    client_email: str
+    freelancer_email: str
+    slot_start: str  # ISO format e.g. "2025-03-15T10:00:00"
+    slot_end: str
+
+
+class MakeJobLiveRequest(BaseModel):
+    is_live: bool = True
 
 
 def cosine_similarity(a: List[float], b: List[float]) -> float:
@@ -112,6 +134,9 @@ def initialize_persistence() -> None:
             "experience_years": max(int(record["experience_years"]), 0),
             "experience_months": max(min(int(record.get("experience_months", 0) or 0), 11), 0),
             "skills": sorted({skill.strip().lower() for skill in record["skills"] if isinstance(skill, str)}),
+            "availability_slots": record.get("availability_slots") or [],
+            "whatsapp_phone": record.get("whatsapp_phone") or "",
+            "profile_live": record.get("profile_live", True),
         }
 
 
@@ -130,6 +155,8 @@ async def register_freelancer(
     allow_empty_resume: bool = Form(False),
     skills: str = Form(""),
     bio: str = Form(""),
+    whatsapp_phone: str = Form(""),
+    availability_slots: str = Form("[]"),
     file: UploadFile = File(...),
 ) -> Dict:
     content = await file.read()
@@ -152,6 +179,13 @@ async def register_freelancer(
     total_extracted_months = max(extracted_years, 0) * 12 + max(min(extracted_months, 11), 0)
     final_total_months = max(total_input_months, total_extracted_months)
 
+    try:
+        slots_data = json.loads(availability_slots) if availability_slots else []
+    except json.JSONDecodeError:
+        slots_data = []
+    if not isinstance(slots_data, list):
+        slots_data = []
+
     resume_metadata[resume_id] = {
         "name": name,
         "email": email,
@@ -160,6 +194,9 @@ async def register_freelancer(
         "experience_years": final_total_months // 12,
         "experience_months": final_total_months % 12,
         "skills": merged_skills,
+        "availability_slots": slots_data,
+        "whatsapp_phone": (whatsapp_phone or "").strip(),
+        "profile_live": True,
     }
 
     upsert_freelancer_record(
@@ -173,6 +210,9 @@ async def register_freelancer(
         skills=merged_skills,
         resume_text=text,
         embedding=embedding,
+        availability_slots=slots_data,
+        whatsapp_phone=(whatsapp_phone or "").strip(),
+        profile_live=True,
     )
 
     response = {
@@ -238,7 +278,9 @@ def post_job(job: JobPost) -> Dict:
 
     ranked = []
     for result in semantic_matches:
-        candidate = resume_metadata.get(result["id"], {"skills": [], "experience_years": 0, "experience_months": 0})
+        candidate = resume_metadata.get(result["id"], {"skills": [], "experience_years": 0, "experience_months": 0, "profile_live": True})
+        if not candidate.get("profile_live", True):
+            continue
         candidate_total_months = max(candidate["experience_years"], 0) * 12 + max(candidate.get("experience_months", 0), 0)
         required_total_months = max(job.min_experience_years, 0) * 12
         experience_score = min(candidate_total_months / max(required_total_months, 1), 1.0)
@@ -248,10 +290,12 @@ def post_job(job: JobPost) -> Dict:
         skill_score = len(required & available) / max(len(required), 1)
 
         final_score = round((0.5 * skill_score) + (0.3 * experience_score) + (0.2 * result["score"]), 4)
+        match_percentage = min(100, max(1, int(final_score * 100)))
         ranked.append(
             {
                 "resume_id": result["id"],
                 "name": candidate.get("name", result["id"]),
+                "email": candidate.get("email", ""),
                 "headline": candidate.get("headline", "Freelancer"),
                 "semantic_score": result["score"],
                 "skill_score": round(skill_score, 4),
@@ -259,17 +303,109 @@ def post_job(job: JobPost) -> Dict:
                 "experience_years": candidate.get("experience_years", 0),
                 "experience_months": candidate.get("experience_months", 0),
                 "final_score": final_score,
+                "match_percentage": match_percentage,
+                "availability_slots": candidate.get("availability_slots", []),
+                "whatsapp_phone": candidate.get("whatsapp_phone", ""),
             }
         )
 
     ranked.sort(key=lambda item: item["final_score"], reverse=True)
-    return {"top_matches": ranked[:5]}
+    top_matches = ranked[:10]
+
+    job_id = f"job-{uuid.uuid4().hex[:8]}"
+    create_job(
+        job_id=job_id,
+        client_name=job.client_name or "Client",
+        client_email=job.client_email or "",
+        client_whatsapp=job.client_whatsapp or "",
+        description=job.description,
+        required_skills=job.required_skills,
+        min_experience_years=job.min_experience_years,
+        is_live=False,
+    )
+
+    return {
+        "job_id": job_id,
+        "top_matches": top_matches,
+        "whatsapp_message": _build_whatsapp_message(job.description[:80], top_matches),
+    }
 
 
 @app.get("/freelancers")
 def get_freelancers(limit: int = 100) -> Dict[str, List[Dict]]:
     profiles = list_freelancer_profiles(limit)
     return {"count": len(profiles), "freelancers": profiles}
+
+
+def _build_whatsapp_message(job_preview: str, matches: List[Dict]) -> str:
+    lines = [
+        "🔔 *FreelancingAI – Developers matching your requirement*",
+        "",
+        f"📋 Job: {job_preview}...",
+        "",
+        "👥 *Top matching developers:*",
+    ]
+    for i, m in enumerate(matches[:5], 1):
+        pct = m.get("match_percentage", int((m.get("final_score", 0) * 100)))
+        lines.append(f"{i}. *{m.get('name', 'N/A')}* – {pct}% match")
+        lines.append(f"   {m.get('headline', '')} | {m.get('experience_years', 0)}+ yrs")
+    lines.extend(["", "Schedule an interview at: /jobs", "Reply to this message to connect."])
+    return "\n".join(lines)
+
+
+@app.post("/jobs/{job_id}/live")
+def make_job_live_endpoint(job_id: str, body: MakeJobLiveRequest | None = Body(None)) -> Dict:
+    is_live = body.is_live if body else True
+    if set_job_live(job_id, is_live):
+        return {"message": f"Job is now {'live' if is_live else 'draft'}", "job_id": job_id}
+    raise HTTPException(status_code=404, detail="Job not found")
+
+
+def _normalize_time(t: str) -> str:
+    if not t:
+        return ""
+    if "T" in t:
+        return t.split("T")[-1][:5]
+    return str(t)[:5]
+
+
+@app.post("/interviews/schedule")
+def schedule_interview_endpoint(req: ScheduleInterviewRequest) -> Dict:
+    freelancer = get_freelancer_by_resume_id(req.resume_id)
+    if not freelancer:
+        raise HTTPException(status_code=404, detail="Freelancer not found")
+    valid_slots = freelancer.get("availability_slots") or []
+    req_start = _normalize_time(req.slot_start)
+    req_end = _normalize_time(req.slot_end)
+    slot_ok = any(
+        _normalize_time(str(s.get("start", ""))) == req_start and _normalize_time(str(s.get("end", ""))) == req_end
+        for s in valid_slots
+        if isinstance(s, dict)
+    )
+    if valid_slots and not slot_ok:
+        return {
+            "message": "Slot not in freelancer availability. Use one of their listed slots.",
+            "availability_slots": valid_slots,
+        }
+    if schedule_interview(req.job_id, req.resume_id, req.client_email, req.freelancer_email, req.slot_start, req.slot_end):
+        return {"message": "Interview scheduled", "job_id": req.job_id, "resume_id": req.resume_id}
+    raise HTTPException(status_code=400, detail="Could not schedule (slot may already be booked)")
+
+
+@app.get("/jobs/{job_id}")
+def get_job_endpoint(job_id: str) -> Dict:
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job
+
+
+@app.get("/freelancers/{resume_id}/slots")
+def get_freelancer_slots(resume_id: str) -> Dict:
+    freelancer = get_freelancer_by_resume_id(resume_id)
+    if not freelancer:
+        raise HTTPException(status_code=404, detail="Freelancer not found")
+    return {"resume_id": resume_id, "availability_slots": freelancer.get("availability_slots", [])}
 
 
 def _extract_resume_text(file: UploadFile, content: bytes, allow_empty_resume: bool = False) -> Tuple[str, str]:

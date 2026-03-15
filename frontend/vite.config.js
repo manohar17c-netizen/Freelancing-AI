@@ -11,6 +11,8 @@ export default defineConfig(({ command }) => ({
       "/freelancers": "http://127.0.0.1:8000",
       "/post-job": "http://127.0.0.1:8000",
       "/upload-resume": "http://127.0.0.1:8000",
+      "/jobs": "http://127.0.0.1:8000",
+      "/interviews": "http://127.0.0.1:8000",
     },
   },
   build: {

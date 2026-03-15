@@ -24,9 +24,9 @@ export default function LandingPage() {
             <a className="action primary" href={`${backendBase}/auth/login?next=/ui/resume`}>
               I&apos;m a Freelancer
             </a>
-            <Link className="action" to="/jobs">
+            <a className="action primary" href={`${backendBase}/auth/login?next=/ui/jobs`}>
               I&apos;m Hiring
-            </Link>
+            </a>
           </div>
           <div className="stats-grid">
             <div className="stat-card">

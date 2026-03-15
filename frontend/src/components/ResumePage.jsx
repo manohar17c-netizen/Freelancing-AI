@@ -10,6 +10,8 @@ const initialForm = {
   experience_months: 0,
   skills: "",
   bio: "",
+  whatsapp_phone: "",
+  availability_slots: [],
 };
 
 export default function ResumePage() {
@@ -18,6 +20,7 @@ export default function ResumePage() {
   const [form, setForm] = useState(initialForm);
   const [file, setFile] = useState(null);
   const [resumeUploaded, setResumeUploaded] = useState(false);
+  const [newSlot, setNewSlot] = useState({ day: "", start: "", end: "" });
   const [status, setStatus] = useState({ type: "", message: "" });
   const [authState, setAuthState] = useState({ loading: true, user: null });
 
@@ -52,7 +55,25 @@ export default function ResumePage() {
 
   function onChange(event) {
     const { name, value } = event.target;
-    setForm((prev) => ({ ...prev, [name]: value }));
+    const v = name === "experience_years" || name === "experience_months" ? Number(value) || 0 : value;
+    setForm((prev) => ({ ...prev, [name]: v }));
+  }
+
+  function addSlot() {
+    if (!newSlot.day || !newSlot.start || !newSlot.end) return;
+    const slot = { day: newSlot.day, start: newSlot.start, end: newSlot.end };
+    setForm((prev) => ({
+      ...prev,
+      availability_slots: [...(prev.availability_slots || []), slot],
+    }));
+    setNewSlot({ day: "", start: "", end: "" });
+  }
+
+  function removeSlot(idx) {
+    setForm((prev) => ({
+      ...prev,
+      availability_slots: prev.availability_slots.filter((_, i) => i !== idx),
+    }));
   }
 
   function onResumeUpload(event) {
@@ -81,6 +102,8 @@ export default function ResumePage() {
     body.append("experience_months", String(form.experience_months));
     body.append("skills", form.skills);
     body.append("bio", form.bio);
+    body.append("whatsapp_phone", form.whatsapp_phone);
+    body.append("availability_slots", JSON.stringify(form.availability_slots || []));
     body.append("file", file);
 
     try {
@@ -109,6 +132,7 @@ export default function ResumePage() {
         experience_months: 0,
         skills: "",
         bio: "",
+        availability_slots: [],
       }));
       setTimeout(() => {
         navigate("/freelancer/home");
@@ -217,6 +241,51 @@ export default function ResumePage() {
 
               <label htmlFor="bio">Short bio</label>
               <textarea id="bio" name="bio" rows={3} value={form.bio} onChange={onChange} />
+
+              <label htmlFor="whatsapp_phone">WhatsApp number (for client contact)</label>
+              <input
+                id="whatsapp_phone"
+                name="whatsapp_phone"
+                value={form.whatsapp_phone}
+                onChange={onChange}
+                placeholder="+1234567890"
+              />
+
+              <label>Availability slots (when clients can schedule interviews)</label>
+              <div className="slot-add-row">
+                <input
+                  placeholder="Day (e.g. Mon, Tue)"
+                  value={newSlot.day}
+                  onChange={(e) => setNewSlot((s) => ({ ...s, day: e.target.value }))}
+                />
+                <input
+                  type="time"
+                  placeholder="Start"
+                  value={newSlot.start}
+                  onChange={(e) => setNewSlot((s) => ({ ...s, start: e.target.value }))}
+                />
+                <input
+                  type="time"
+                  placeholder="End"
+                  value={newSlot.end}
+                  onChange={(e) => setNewSlot((s) => ({ ...s, end: e.target.value }))}
+                />
+                <button type="button" className="slot-add-btn" onClick={addSlot}>
+                  Add slot
+                </button>
+              </div>
+              {(form.availability_slots || []).length > 0 && (
+                <ul className="slot-list">
+                  {(form.availability_slots || []).map((s, i) => (
+                    <li key={i}>
+                      {s.day} {s.start}–{s.end}
+                      <button type="button" className="slot-remove" onClick={() => removeSlot(i)}>
+                        Remove
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
 
               <label htmlFor="resume">Resume (.txt, .pdf, .docx, .doc)</label>
               <div className="upload-row">

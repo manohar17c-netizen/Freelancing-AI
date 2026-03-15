@@ -478,3 +478,29 @@ uvicorn main:app --app-dir backend/scripts --reload --port 8000
 cd frontend
 npm run dev
 ```
+
+---
+
+## End-to-end Features
+
+### Freelancer flow
+1. Sign in with Google at `/auth/login`
+2. Complete profile: name, email, headline, experience, skills, bio
+3. Add **availability slots** (day + time) when clients can schedule interviews
+4. Add **WhatsApp number** for client contact
+5. Upload resume (.txt, .pdf, .docx) and register
+
+### Client flow
+1. Go to **I'm Hiring** → Post a job
+2. Enter job description, required skills, min experience
+3. Enter your name, email, WhatsApp for notifications
+4. Submit → AI matches freelancers with **match % (1–100)**
+5. **Copy WhatsApp message** or **Open WhatsApp** to send matched developers to your client/team
+6. **Schedule interview** – pick a slot from freelancer availability
+7. **Make requirement live** – publish the job as live
+
+### API endpoints
+- `POST /post-job` – Returns `job_id`, `top_matches` (with `match_percentage`), `whatsapp_message`
+- `POST /jobs/{job_id}/live` – Make job live
+- `POST /interviews/schedule` – Schedule interview with freelancer
+- `GET /freelancers/{resume_id}/slots` – Get freelancer availability slots

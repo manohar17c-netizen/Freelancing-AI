@@ -33,6 +33,9 @@ def init_db() -> None:
                 skills_json TEXT NOT NULL DEFAULT '[]',
                 resume_text TEXT NOT NULL,
                 embedding_json TEXT NOT NULL DEFAULT '[]',
+                availability_slots_json TEXT NOT NULL DEFAULT '[]',
+                whatsapp_phone TEXT NOT NULL DEFAULT '',
+                profile_live INTEGER NOT NULL DEFAULT 1,
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
                 updated_at TEXT NOT NULL DEFAULT (datetime('now'))
             )
@@ -41,8 +44,49 @@ def init_db() -> None:
         try:
             connection.execute("ALTER TABLE freelancers ADD COLUMN experience_months INTEGER NOT NULL DEFAULT 0")
         except sqlite3.OperationalError:
-            # Column already exists for upgraded databases.
             pass
+        for col, col_type in [
+            ("availability_slots_json", "TEXT NOT NULL DEFAULT '[]'"),
+            ("whatsapp_phone", "TEXT NOT NULL DEFAULT ''"),
+            ("profile_live", "INTEGER NOT NULL DEFAULT 1"),
+        ]:
+            try:
+                connection.execute(f"ALTER TABLE freelancers ADD COLUMN {col.split()[0]} {col_type}")
+            except sqlite3.OperationalError:
+                pass
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS jobs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_id TEXT NOT NULL UNIQUE,
+                client_name TEXT NOT NULL,
+                client_email TEXT NOT NULL DEFAULT '',
+                client_whatsapp TEXT NOT NULL DEFAULT '',
+                description TEXT NOT NULL,
+                required_skills_json TEXT NOT NULL DEFAULT '[]',
+                min_experience_years INTEGER NOT NULL DEFAULT 0,
+                is_live INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS interviews (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_id TEXT NOT NULL,
+                resume_id TEXT NOT NULL,
+                client_email TEXT NOT NULL,
+                freelancer_email TEXT NOT NULL,
+                slot_start TEXT NOT NULL,
+                slot_end TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'scheduled',
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                UNIQUE(job_id, resume_id, slot_start)
+            )
+            """
+        )
         connection.commit()
 
 
@@ -58,16 +102,21 @@ def upsert_freelancer_record(
     skills: List[str],
     resume_text: str,
     embedding: List[float],
+    availability_slots: List[dict] | None = None,
+    whatsapp_phone: str = "",
+    profile_live: bool = True,
 ) -> None:
+    slots = availability_slots or []
     with _get_connection() as connection:
         connection.execute(
             """
             INSERT INTO freelancers (
                 resume_id, name, email, headline, bio, experience_years,
                 experience_months,
-                skills_json, resume_text, embedding_json
+                skills_json, resume_text, embedding_json,
+                availability_slots_json, whatsapp_phone, profile_live
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(resume_id) DO UPDATE SET
                 name=excluded.name,
                 email=excluded.email,
@@ -78,6 +127,9 @@ def upsert_freelancer_record(
                 skills_json=excluded.skills_json,
                 resume_text=excluded.resume_text,
                 embedding_json=excluded.embedding_json,
+                availability_slots_json=excluded.availability_slots_json,
+                whatsapp_phone=excluded.whatsapp_phone,
+                profile_live=excluded.profile_live,
                 updated_at=datetime('now')
             """,
             (
@@ -91,6 +143,9 @@ def upsert_freelancer_record(
                 json.dumps(skills),
                 resume_text,
                 json.dumps(embedding),
+                json.dumps(slots),
+                whatsapp_phone or "",
+                1 if profile_live else 0,
             ),
         )
         connection.commit()
@@ -98,37 +153,61 @@ def upsert_freelancer_record(
 
 def load_freelancer_records() -> List[Dict[str, Any]]:
     with _get_connection() as connection:
-        rows = connection.execute(
-            """
-            SELECT resume_id, name, email, headline, bio, experience_years, experience_months, skills_json, resume_text, embedding_json
-            FROM freelancers
-            ORDER BY created_at ASC
-            """
-        ).fetchall()
+        try:
+            rows = connection.execute(
+                """
+                SELECT resume_id, name, email, headline, bio, experience_years, experience_months,
+                       skills_json, resume_text, embedding_json,
+                       COALESCE(availability_slots_json, '[]') as availability_slots_json,
+                       COALESCE(whatsapp_phone, '') as whatsapp_phone,
+                       COALESCE(profile_live, 1) as profile_live
+                FROM freelancers
+                ORDER BY created_at ASC
+                """
+            ).fetchall()
+        except sqlite3.OperationalError:
+            rows = connection.execute(
+                """
+                SELECT resume_id, name, email, headline, bio, experience_years, experience_months,
+                       skills_json, resume_text, embedding_json
+                FROM freelancers
+                ORDER BY created_at ASC
+                """
+            ).fetchall()
 
     records: List[Dict[str, Any]] = []
     for row in rows:
+        row_d = {k: row[k] for k in row.keys()} if hasattr(row, "keys") else dict(enumerate(row))
         try:
-            skills = json.loads(row["skills_json"]) if row["skills_json"] else []
+            skills = json.loads(row_d.get("skills_json") or "[]")
         except json.JSONDecodeError:
             skills = []
         try:
-            embedding = json.loads(row["embedding_json"]) if row["embedding_json"] else []
+            embedding = json.loads(row_d.get("embedding_json") or "[]")
         except json.JSONDecodeError:
             embedding = []
+        try:
+            slots = json.loads(row_d.get("availability_slots_json", "[]") or "[]")
+        except (json.JSONDecodeError, TypeError):
+            slots = []
+        if not isinstance(slots, list):
+            slots = []
 
         records.append(
             {
-                "resume_id": row["resume_id"],
-                "name": row["name"],
-                "email": row["email"],
-                "headline": row["headline"],
-                "bio": row["bio"],
-                "experience_years": int(row["experience_years"] or 0),
-                "experience_months": int(row["experience_months"] or 0),
+                "resume_id": row_d["resume_id"],
+                "name": row_d["name"],
+                "email": row_d["email"],
+                "headline": row_d["headline"],
+                "bio": row_d["bio"],
+                "experience_years": int(row_d.get("experience_years", 0) or 0),
+                "experience_months": int(row_d.get("experience_months", 0) or 0),
                 "skills": skills if isinstance(skills, list) else [],
-                "resume_text": row["resume_text"],
+                "resume_text": row_d["resume_text"],
                 "embedding": embedding if isinstance(embedding, list) else [],
+                "availability_slots": slots,
+                "whatsapp_phone": str(row_d.get("whatsapp_phone", "") or ""),
+                "profile_live": bool(row_d.get("profile_live", 1)),
             }
         )
     return records
@@ -137,35 +216,139 @@ def load_freelancer_records() -> List[Dict[str, Any]]:
 def list_freelancer_profiles(limit: int = 100) -> List[Dict[str, Any]]:
     safe_limit = max(1, min(limit, 1000))
     with _get_connection() as connection:
-        rows = connection.execute(
-            """
-            SELECT resume_id, name, email, headline, bio, experience_years, experience_months, skills_json, created_at, updated_at
-            FROM freelancers
-            ORDER BY created_at DESC
-            LIMIT ?
-            """,
-            (safe_limit,),
-        ).fetchall()
+        try:
+            rows = connection.execute(
+                """
+                SELECT resume_id, name, email, headline, bio, experience_years, experience_months,
+                       skills_json, availability_slots_json, profile_live, created_at, updated_at
+                FROM freelancers
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (safe_limit,),
+            ).fetchall()
+        except sqlite3.OperationalError:
+            rows = connection.execute(
+                """
+                SELECT resume_id, name, email, headline, bio, experience_years, experience_months, skills_json, created_at, updated_at
+                FROM freelancers
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (safe_limit,),
+            ).fetchall()
 
     profiles: List[Dict[str, Any]] = []
     for row in rows:
+        row_d = {k: row[k] for k in row.keys()} if hasattr(row, "keys") else {}
         try:
-            skills = json.loads(row["skills_json"]) if row["skills_json"] else []
+            skills = json.loads(row_d.get("skills_json") or "[]")
         except json.JSONDecodeError:
             skills = []
-
+        try:
+            slots = json.loads(row_d.get("availability_slots_json") or "[]")
+        except (json.JSONDecodeError, TypeError):
+            slots = []
         profiles.append(
             {
-                "resume_id": row["resume_id"],
-                "name": row["name"],
-                "email": row["email"],
-                "headline": row["headline"],
-                "bio": row["bio"],
-                "experience_years": int(row["experience_years"] or 0),
-                "experience_months": int(row["experience_months"] or 0),
+                "resume_id": row_d["resume_id"],
+                "name": row_d["name"],
+                "email": row_d["email"],
+                "headline": row_d["headline"],
+                "bio": row_d["bio"],
+                "experience_years": int(row_d.get("experience_years", 0) or 0),
+                "experience_months": int(row_d.get("experience_months", 0) or 0),
                 "skills": skills if isinstance(skills, list) else [],
-                "created_at": row["created_at"],
-                "updated_at": row["updated_at"],
+                "availability_slots": slots if isinstance(slots, list) else [],
+                "profile_live": bool(row_d.get("profile_live", 1)),
+                "created_at": row_d.get("created_at", ""),
+                "updated_at": row_d.get("updated_at", ""),
             }
         )
     return profiles
+
+
+def create_job(
+    *,
+    job_id: str,
+    client_name: str,
+    client_email: str = "",
+    client_whatsapp: str = "",
+    description: str,
+    required_skills: List[str],
+    min_experience_years: int = 0,
+    is_live: bool = False,
+) -> None:
+    with _get_connection() as connection:
+        connection.execute(
+            """
+            INSERT INTO jobs (job_id, client_name, client_email, client_whatsapp, description, required_skills_json, min_experience_years, is_live)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(job_id) DO UPDATE SET
+                client_name=excluded.client_name,
+                client_email=excluded.client_email,
+                client_whatsapp=excluded.client_whatsapp,
+                description=excluded.description,
+                required_skills_json=excluded.required_skills_json,
+                min_experience_years=excluded.min_experience_years,
+                is_live=excluded.is_live,
+                updated_at=datetime('now')
+            """,
+            (job_id, client_name, client_email, client_whatsapp, description, json.dumps(required_skills), min_experience_years, 1 if is_live else 0),
+        )
+        connection.commit()
+
+
+def set_job_live(job_id: str, is_live: bool) -> bool:
+    with _get_connection() as connection:
+        cur = connection.execute("UPDATE jobs SET is_live=?, updated_at=datetime('now') WHERE job_id=?", (1 if is_live else 0, job_id))
+        connection.commit()
+        return cur.rowcount > 0
+
+
+def get_job(job_id: str) -> Dict[str, Any] | None:
+    with _get_connection() as connection:
+        row = connection.execute("SELECT * FROM jobs WHERE job_id=?", (job_id,)).fetchone()
+    if not row:
+        return None
+    row_d = {k: row[k] for k in row.keys()} if hasattr(row, "keys") else {}
+    try:
+        skills = json.loads(row_d.get("required_skills_json") or "[]")
+    except json.JSONDecodeError:
+        skills = []
+    return {
+        "job_id": row_d["job_id"],
+        "client_name": row_d["client_name"],
+        "client_email": row_d.get("client_email", ""),
+        "client_whatsapp": row_d.get("client_whatsapp", ""),
+        "description": row_d["description"],
+        "required_skills": skills,
+        "min_experience_years": int(row_d.get("min_experience_years", 0) or 0),
+        "is_live": bool(row_d.get("is_live", 0)),
+        "created_at": row_d.get("created_at", ""),
+        "updated_at": row_d.get("updated_at", ""),
+    }
+
+
+def schedule_interview(job_id: str, resume_id: str, client_email: str, freelancer_email: str, slot_start: str, slot_end: str) -> bool:
+    with _get_connection() as connection:
+        try:
+            connection.execute(
+                """
+                INSERT INTO interviews (job_id, resume_id, client_email, freelancer_email, slot_start, slot_end)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (job_id, resume_id, client_email, freelancer_email, slot_start, slot_end),
+            )
+            connection.commit()
+            return True
+        except sqlite3.IntegrityError:
+            return False
+
+
+def get_freelancer_by_resume_id(resume_id: str) -> Dict[str, Any] | None:
+    profiles = list_freelancer_profiles(limit=1000)
+    for p in profiles:
+        if p["resume_id"] == resume_id:
+            return p
+    return None

@@ -136,7 +136,7 @@ def _google_redirect_uri(request: Request) -> str:
     return str(request.url_for("oauth_callback", provider="google"))
 
 
-def _build_login_page(next_url: str) -> str:
+def _build_login_page(next_url: str, title: str = "Sign in", subtitle: str = "Continue with your Google account. You will be redirected to Google and returned after sign-in.") -> str:
     safe_next = urllib.parse.quote(next_url, safe="/")
     return f"""
     <!DOCTYPE html>
@@ -144,14 +144,14 @@ def _build_login_page(next_url: str) -> str:
     <head>
       <meta charset=\"UTF-8\" />
       <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />
-      <title>Developer Login</title>
+      <title>{title}</title>
       {_auth_theme_styles()}
     </head>
     <body>
       <main class=\"card\">
         <div class=\"brand\"><span>Freelancing</span>AI</div>
-        <h1>Sign in as a freelancer</h1>
-        <p>Continue with your Google account. You will be redirected to Google and returned to resume onboarding.</p>
+        <h1>{title}</h1>
+        <p>{subtitle}</p>
         <div class=\"actions\">
           <a class=\"btn primary\" href=\"/auth/start/google?next={safe_next}\">Continue with Google</a>
         </div>
@@ -250,8 +250,9 @@ def current_user(request: Request):
 
 @auth_router.get("/login", response_class=HTMLResponse)
 def login_page(next: str = FREELANCER_INTAKE_PATH) -> str:
-    _ = next
-    return _build_login_page(FREELANCER_INTAKE_PATH)
+    if next == "/ui/jobs":
+        return _build_login_page(next, title="Sign in as a client", subtitle="Continue with your Google account to post jobs and hire freelancers.")
+    return _build_login_page(next, title="Sign in as a freelancer", subtitle="Continue with your Google account. You will be redirected to resume onboarding.")
 
 
 @auth_router.get("/start/{provider}")
@@ -268,8 +269,8 @@ def start_login(provider: str, request: Request, next: str = FREELANCER_INTAKE_P
 
     state = secrets.token_urlsafe(16)
     redirect_uri = _google_redirect_uri(request)
-    _ = next
-    _pending_oauth_states[state] = {"provider": provider, "next": FREELANCER_INTAKE_PATH, "redirect_uri": redirect_uri}
+    next_url = next if next and next.startswith("/") else FREELANCER_INTAKE_PATH
+    _pending_oauth_states[state] = {"provider": provider, "next": next_url, "redirect_uri": redirect_uri}
 
     params = {
         "client_id": os.environ["GOOGLE_CLIENT_ID"],
@@ -312,11 +313,17 @@ def oauth_callback(request: Request, provider: str, state: str = "", code: str =
         profile = _fetch_google_user_info(access_token)
         resolved_name = profile.get("name", "Google User")
         resolved_email = profile.get("email", "user@google.login")
+        resolved_picture = profile.get("picture", "")
     except Exception as exc:  # pragma: no cover
         return HTMLResponse(_build_error_page(f"Google sign-in failed: {exc}"), status_code=400)
 
     session_token = secrets.token_urlsafe(24)
-    _user_sessions[session_token] = {"name": resolved_name, "email": resolved_email, "provider": provider}
+    _user_sessions[session_token] = {
+        "name": resolved_name,
+        "email": resolved_email,
+        "provider": provider,
+        "picture": resolved_picture,
+    }
 
     response = RedirectResponse(pending["next"], status_code=302)
     response.set_cookie(AUTH_COOKIE, session_token, httponly=True, samesite="lax")
