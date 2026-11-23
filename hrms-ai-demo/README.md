@@ -1,0 +1,55 @@
+# HRMS-AI — Public Recruitment Intelligence Demo
+
+**A complete interactive front-end startup demo** based on the *AI-Powered Recruitment Intelligence Platform (HRMS-AI)* business plan, IIM Kozhikode EPGP-17 Group C7, submitted 10 November 2026.
+
+> **Demo, not a live recruitment system.** This static website uses fictional applicants, manually authored synthetic skill values and transparent weighted arithmetic. It does not use live AI, parse CVs, contact candidates or make hiring decisions.
+
+## Start the demo
+
+- **Fastest:** open `index.html` in a browser; or
+- **Local HTTP server:** from this folder run `python3 -m http.server 8000`, then visit `http://localhost:8000`.
+- **Free public hosting:** see [`DEPLOY.md`](DEPLOY.md). Works with Netlify Drop, GitHub Pages or equivalent static hosts; no build step and no API keys.
+
+## Try the entire hiring experience
+
+1. Pick **Data Engineering Lead**, **Senior Product Manager**, or **Enterprise Sales Lead**.
+2. Enter a fictional company's mission, values and current priorities.
+3. Specify the manager's 90-day success criteria and adjust weighted skills.
+4. Compare the fictional applicant shortlist, strengths and skill gaps; optionally create another fictional applicant.
+5. Inspect a candidate's contextual interview questions and print or save the Executive Candidate Brief.
+6. Move the applicant through a human-controlled pipeline and preview the corresponding candidate-facing status.
+
+A **Share scenario** button creates a role-specific URL after the site is publicly hosted (it includes no applicant info). A **Reset demo** button restores synthetic defaults.
+
+## Key implementation details
+
+| File | Purpose |
+|---|---|
+| `index.html` | Public website and six-stage workspace |
+| `styles.css` | Responsive design, accessibility and print formatting |
+| `app.js` | Fictional scenarios, scoring, interviewer brief, pipeline, candidate view and interaction |
+| `tests/smoke.py` | Browser smoke tests for the entire fictional end-to-end journey |
+| `AGENTS.md` | Codex guidance and product constraints |
+| `PROJECT_BRIEF.md` | Hand-off to a ChatGPT Project |
+| `DEPLOY.md` | Free public publishing steps |
+
+## Run checks
+
+```bash
+node --check app.js
+# Optional: requires Python Playwright and Chromium
+python tests/smoke.py
+```
+
+This demo does not make network calls, collect contact information, persist candidate data or provide ATS integrations. Onboarding and workforce analytics are future product phases in the source report.
+
+### Why HRMS-AI is different
+
+The product's value is **context before CVs**: collect company and hiring-manager success criteria before evaluating candidates, and help every interviewer ask more relevant, candidate-specific questions. Human reviewers make all employment decisions.
+
+### Project ownership and affiliation
+
+Inspired by the Group C7 business plan as an independent educational startup concept. Not a deployed product or official service of IIM Kozhikode.
+
+### Monorepo / Netlify
+This app lives in `hrms-ai-demo/` inside `Freelancing-AI`. For Netlify, choose base directory `hrms-ai-demo`, publish directory `.`, and leave the build command blank.
