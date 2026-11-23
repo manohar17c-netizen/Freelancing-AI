@@ -83,7 +83,8 @@ function sortedCandidates(){return [...state.candidates].sort((a,b)=>(score(b)??
 function orderedSkills(c){let skills=SCENARIOS[state.scenario].skills;
  return skills.map((name,i)=>({name,value:c.skills[i],weight:state.weights[i],inquiry:(100-c.skills[i])*state.weights[i]}));
 }
-function topGaps(c){return orderedSkills(c).sort((a,b)=>b.inquiry-a.inquiry).slice(0,2)}
+function rankedGaps(c){return orderedSkills(c).sort((a,b)=>b.inquiry-a.inquiry)}
+function topGaps(c){return rankedGaps(c).slice(0,2)}
 function topStrengths(c){return orderedSkills(c).sort((a,b)=>b.value-a.value).slice(0,2)}
 function questionsFor(c){
  const g=topGaps(c);let v=clean($('values').value.split(',')[0])||'ownership';
@@ -120,25 +121,53 @@ function renderApplicants(){let c=getCandidate();const arr=sortedCandidates();$(
  $('selectedEvidence').textContent=c.evidence;
  $('selectedGaps').textContent=`Follow up on ${topGaps(c).map(s=>s.name.toLowerCase()).join(' and ')}. Ask for actual examples and independent evidence; do not treat the score as a hiring decision.`;
 }
+function scoreRationale(candidate) {
+ const match = score(candidate);
+ if (match === null) return 'Assign a positive weight to at least one skill to calculate alignment.';
+ return `The ${match}/100 score is the weighted average of fictional skill evidence. Each skill is multiplied by its role weight, then the sum is divided by the total weight and rounded.`;
+}
+
+function gapDetails(skill) {
+ return `${skill.value}/100 sample evidence · role weight ${skill.weight} · ${100 - skill.value} points below the sample benchmark`;
+}
+
 function renderBrief(){let c=getCandidate();if(!c)return;let cfg=SCENARIOS[state.scenario];$('briefAvatar').textContent=initials(c.name);$('briefName').textContent=c.name;
  $('briefMeta').textContent=`${c.title} · ${clean($('roleTitle').value)||cfg.role}`;$('briefScore').textContent=score(c)===null?'—':score(c)+'/100';
+ $('briefRationale').textContent = scoreRationale(c);
+ $('briefMission').textContent = clean($('mission').value) || 'Company mission pending.';
+ $('briefManager').textContent = clean($('managerOutcome').value) || 'Manager criteria pending.';
  const tags=[clean($('companyName').value)||'Your organisation',clean($('department').value)||'Team',clean($('ninetyDays').value)||'Role impact'];
  $('briefContext').innerHTML=tags.map(t=>`<span>${esc(clip(t,70))}</span>`).join('');
  $('briefStrengths').innerHTML=topStrengths(c).map(s=>`<li><strong>${esc(s.name)}</strong> · ${s.value}/100 illustrative skill evidence</li>`).join('');
- $('briefGaps').innerHTML=topGaps(c).map(s=>`<li><strong>${esc(s.name)}</strong> · investigate claims with examples</li>`).join('');
+ $('briefGaps').innerHTML=rankedGaps(c).map(s=>`<li><strong>${esc(s.name)}</strong> · ${gapDetails(s)}</li>`).join('');
  $('briefQuestions').innerHTML=questionsFor(c).map((q,i)=>`<li><span>Q${i+1}</span>${esc(q)}</li>`).join('');
 }
 function renderPipeline(){let c=state.candidates;let counts={'Human review':0,'Invite to interview':0,'Request evidence':0,'On hold':0};c.forEach(p=>counts[p.stage]=(counts[p.stage]||0)+1);
  $('stageReview').textContent=counts['Human review'];$('stageInvite').textContent=counts['Invite to interview'];$('stageEvidence').textContent=counts['Request evidence'];$('stageOther').textContent=counts['On hold'];
  $('pipelineRows').innerHTML=c.map(p=>`<div class="pipeline-row"><span class="avatar">${esc(initials(p.name))}</span><div class="pinfo"><strong>${esc(p.name)}</strong><small>${esc(p.title)} · demo match ${score(p)??'—'}/100</small></div><select data-stage-candidate="${esc(p.id)}" aria-label="Stage for ${esc(p.name)}">${Object.keys(counts).map(s=>`<option value="${s}" ${s===p.stage?'selected':''}>${s}</option>`).join('')}</select></div>`).join('');
- $('pipelineRows').querySelectorAll('[data-stage-candidate]').forEach(sel=>sel.addEventListener('change',()=>{let p=getCandidate(sel.dataset.stageCandidate);p.stage=sel.value;renderPipeline();toast(`${p.name}'s demo stage changed to ${p.stage}.`);}));
+ $('pipelineRows').querySelectorAll('[data-stage-candidate]').forEach(sel=>sel.addEventListener('change',()=>{let p=getCandidate(sel.dataset.stageCandidate);p.stage=sel.value;if(p.stage!=='Invite to interview')delete p.interviewSlot;renderPipeline();document.querySelector(`[data-stage-candidate="${p.id}"]`)?.focus();toast(`${p.name}'s demo stage changed to ${p.stage}.`);}));
+ const invited = c.filter(candidate => candidate.stage === 'Invite to interview');
+ const candidatePicker = $('interviewCandidate');
+ const previousId = candidatePicker.value;
+ candidatePicker.replaceChildren(...invited.map(candidate => new Option(candidate.name, candidate.id)));
+ if (invited.some(candidate => candidate.id === previousId)) candidatePicker.value = previousId;
+ $('interviewForm').hidden = invited.length === 0;
+ syncInterviewSlot();
 }
+
+function syncInterviewSlot() {
+ const candidate = state.candidates.find(item => item.id === $('interviewCandidate').value);
+ $('interviewSlot').value = candidate?.interviewSlot || '';
+}
+
 function renderPortal(){let list=$('portalCandidate'),selected=state.portalSelected;
  list.innerHTML=state.candidates.map(c=>`<option value="${esc(c.id)}" ${c.id===selected?'selected':''}>${esc(c.name)}</option>`).join('');
  let c=getCandidate(selected);if(!c)return;
  $('portalHello').textContent=`Hello, ${c.name.split(' ')[0]}!`;
  let display={'Human review':'Under review','Invite to interview':'Interview invited','Request evidence':'More evidence needed','On hold':'On hold'}[c.stage]||c.stage;
  $('portalStatus').textContent=display;
+ $('portalInterview').hidden = !c.interviewSlot;
+ $('portalInterview').textContent = c.interviewSlot ? `Sample interview booked for ${c.interviewSlot}. No calendar invite was sent.` : '';
  $('portalRole').textContent=`${clean($('roleTitle').value)||SCENARIOS[state.scenario].role} · ${clean($('companyName').value)||'Hiring organisation'}`;
  let interview=c.stage==='Invite to interview';$('portalStepInterview').classList.toggle('now',interview);$('portalStepReview').classList.toggle('now',!interview);$('portalStepReview').classList.toggle('done',interview);
  const messages={
@@ -157,6 +186,7 @@ function openStep(name){if(!STEPS.includes(name))return;state.step=name;let labe
  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.id===`tab-${name}`));
  let i=STEPS.indexOf(name);$('nextStep').innerHTML=i===STEPS.length-1?'Start the journey again <svg class="icon"><use href="#i-refresh"></use></svg>':`Continue: ${['','role setup','applicant shortlist','interview brief','hiring workflow','candidate experience'][i+1]} <svg class="icon"><use href="#i-arrow"></use></svg>`;
  $('nextStep').dataset.next=STEPS[(i+1)%STEPS.length];renderCurrent();
+ updateTour();
 }
 function toast(message){let el=$('toast');el.textContent=message;el.classList.add('show');clearTimeout(toastTimeout);toastTimeout=setTimeout(()=>el.classList.remove('show'),2800)}
 function showModal(){let skills=SCENARIOS[state.scenario].skills;
@@ -169,8 +199,46 @@ function addCandidate(e){e.preventDefault();let name=clean($('newName').value), 
  let c={id:'custom'+(Date.now()),name,title,evidence:'User-created fictional profile: '+evidence+' (Values were entered manually in this demo; no facts have been verified.)',skills,stage:'Human review'};
  state.candidates.push(c);state.selected=c.id;state.portalSelected=c.id;closeModal();openStep('applicants');toast('Fictional profile added to the local demo.');}
 function buildPrint(){let c=getCandidate();if(!c)return;let q=questionsFor(c), mission=clean($('mission').value), role=clean($('roleTitle').value);
- $('printArea').innerHTML=`<h1>HRMS-AI · Executive Candidate Brief</h1><p><strong>Illustrative prototype · Not an employment decision or verified candidate assessment</strong></p><hr><p><b>Candidate:</b> ${esc(c.name)}<br><b>Role:</b> ${esc(role)}<br><b>Company:</b> ${esc(clean($('companyName').value))}<br><b>Team:</b> ${esc(clean($('department').value))}<br><b>Sample rubric alignment:</b> ${score(c)??'—'}/100</p><p><b>Company mission:</b> ${esc(mission)}</p><p><b>Manager success criteria:</b> ${esc(clean($('managerOutcome').value))}</p><div class="print-cols"><section><h2>Sample strengths</h2><ul>${topStrengths(c).map(s=>`<li>${esc(s.name)} — ${s.value}/100 synthetic skill evidence</li>`).join('')}</ul></section><section><h2>Gaps to investigate</h2><ul>${topGaps(c).map(s=>`<li>${esc(s.name)} — ask for real evidence</li>`).join('')}</ul></section></div><h2>Contextual interview questions</h2><ol>${q.map(x=>`<li>${esc(x)}</li>`).join('')}</ol><h2>Evidence note</h2><p>${esc(c.evidence)}</p><p class="print-warning">DEMO ONLY — This brief is generated from fictional inputs and deterministic calculations. Professional identities and work histories were not checked. A human interviewer must assess real evidence and make the final decision.</p>`;
+ $('printArea').innerHTML=`<h1>HRMS-AI · Executive Candidate Brief</h1><p><strong>Illustrative prototype · Not an employment decision or verified candidate assessment</strong></p><hr><p><b>Candidate:</b> ${esc(c.name)}<br><b>Role:</b> ${esc(role)}<br><b>Company:</b> ${esc(clean($('companyName').value))}<br><b>Team:</b> ${esc(clean($('department').value))}<br><b>Sample rubric alignment:</b> ${score(c)??'—'}/100</p><p>${esc(scoreRationale(c))}</p><p><b>Company mission:</b> ${esc(mission)}</p><p><b>Manager success criteria:</b> ${esc(clean($('managerOutcome').value))}</p><div class="print-cols"><section><h2>Sample strengths</h2><ul>${topStrengths(c).map(s=>`<li>${esc(s.name)} — ${s.value}/100 synthetic skill evidence</li>`).join('')}</ul></section><section><h2>Gaps to investigate</h2><ul>${rankedGaps(c).map(s=>`<li>${esc(s.name)} — ${gapDetails(s)}</li>`).join('')}</ul></section></div><h2>Contextual interview questions</h2><ol>${q.map(x=>`<li>${esc(x)}</li>`).join('')}</ol><h2>Evidence note</h2><p>${esc(c.evidence)}</p><p class="print-warning">DEMO ONLY — This brief is generated from fictional inputs and deterministic calculations. Professional identities and work histories were not checked. A human interviewer must assess real evidence and make the final decision.</p>`;
 }
+
+const tourHints = {
+ context: 'Review the sample company mission and hiring priorities, then continue to role setup.',
+ role: 'Adjust a skill weight to see how the role priorities affect the shortlist.',
+ applicants: 'Choose a fictional applicant and compare their skill evidence against the role.',
+ brief: 'Read the score rationale and interview questions, or print the brief.',
+ pipeline: 'Set an applicant to Invite to interview, choose a sample time, and save the booking.',
+ portal: 'Select the applicant you invited to see the booking from their point of view.'
+};
+
+function updateTour() {
+ if ($('tourPanel').hidden) return;
+ $('tourTitle').textContent = `Guided demo · ${STEPS.indexOf(state.step) + 1} of ${STEPS.length}`;
+ $('tourHint').textContent = tourHints[state.step];
+}
+
+$('startTour').addEventListener('click', () => {
+ $('tourPanel').hidden = false;
+ openStep('context');
+ const heading = $('stepTitle');
+ heading.tabIndex = -1;
+ heading.focus();
+});
+$('exitTour').addEventListener('click', () => {
+ $('tourPanel').hidden = true;
+ $('startTour').focus();
+});
+$('interviewCandidate').addEventListener('change', syncInterviewSlot);
+$('interviewForm').addEventListener('submit', event => {
+ event.preventDefault();
+ const candidate = state.candidates.find(item => item.id === $('interviewCandidate').value);
+ const slot = $('interviewSlot').value;
+ if (!candidate || candidate.stage !== 'Invite to interview' || !slot) return;
+ candidate.interviewSlot = slot;
+ state.portalSelected = candidate.id;
+ $('portalConsent').checked = false;
+ toast(`Sample interview saved for ${candidate.name}.`);
+});
 
 // Wire controls and local-only events.
 document.querySelectorAll('.step-nav').forEach(b=>b.addEventListener('click',()=>openStep(b.dataset.step)));

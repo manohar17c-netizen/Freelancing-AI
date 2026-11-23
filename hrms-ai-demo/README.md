@@ -12,12 +12,14 @@
 
 ## Try the entire hiring experience
 
+Select **Quick guided demo** on the landing page for a tip at each stage of the same interactive workspace.
+
 1. Pick **Data Engineering Lead**, **Senior Product Manager**, or **Enterprise Sales Lead**.
 2. Enter a fictional company's mission, values and current priorities.
 3. Specify the manager's 90-day success criteria and adjust weighted skills.
 4. Compare the fictional applicant shortlist, strengths and skill gaps; optionally create another fictional applicant.
 5. Inspect a candidate's contextual interview questions and print or save the Executive Candidate Brief.
-6. Move the applicant through a human-controlled pipeline and preview the corresponding candidate-facing status.
+6. Invite a fictional applicant through the human-controlled pipeline, book a sample interview time, and see it in the candidate view.
 
 A **Share scenario** button creates a role-specific URL after the site is publicly hosted (it includes no applicant info). A **Reset demo** button restores synthetic defaults.
 
@@ -53,3 +55,10 @@ Inspired by the Group C7 business plan as an independent educational startup con
 
 ### Monorepo / Netlify
 This app lives in `hrms-ai-demo/` inside `Freelancing-AI`. For Netlify, choose base directory `hrms-ai-demo`, publish directory `.`, and leave the build command blank.
+
+### Alignment with the Group C7 report
+
+- **Sections 3.1 and 5.2** — Organisation context and hiring-manager criteria lead into a weighted rubric, fictional candidate evidence, ranked skill gaps, three interview questions and a printable Executive Candidate Brief. The brief shows how its illustrative score was calculated.
+- **Recruitment workflow** — A recruiter controls stage changes and can simulate booking an interview. The candidate view reflects the stage and sample time.
+- **Production scope** — Live CV parsing and model inference, digital footprint sourcing, background verification, calendar and notification delivery, and ATS integrations are production capabilities described by the report. The demo uses fictional evidence and browser-session state. It presents rubric evidence for human review and does not assign a hiring recommendation.
+- **Later releases** — Onboarding, performance management and predictive workforce analytics appear in the product roadmap.
