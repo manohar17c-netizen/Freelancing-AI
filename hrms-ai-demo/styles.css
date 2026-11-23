@@ -6,3 +6,61 @@
 /* Keyboard navigation / sharing improvements */
 .skip-link{position:absolute;top:-50px;left:12px;z-index:200;background:#202448;color:#fff;border-radius:8px;padding:10px 15px;font-weight:800}.skip-link:focus{top:10px}
 @media(max-width:680px){.demo-tools{gap:8px}.demo-tools .btn{flex:1 1 auto}}
+
+:root {
+  --ink: #162b27;
+  --text: #334b44;
+  --muted: #526961;
+  --purple: #186d53;
+  --purple-d: #10523e;
+  --mint: #5ef0b8;
+  --ground: #f3f7f3;
+  --soft: #e7f5ec;
+  --stroke: #d9e6dc;
+  --shadow: 0 20px 64px #15382a12;
+}
+
+.announcement { background: #092b21; }
+.brandmark { background: linear-gradient(145deg, #217956, #124a36); box-shadow: 0 6px 16px #1c745433; }
+.hero {
+  background: radial-gradient(ellipse at 85% 35%, #206047 0%, transparent 53%), #102f26;
+  color: #f4fff9;
+}
+.hero h1 { font-size: clamp(42px, 5.7vw, 78px); line-height: 1.02; font-weight: 750; }
+.hero h1 span, .hero .eyebrow { color: #82e9ba; }
+.hero-description, .hero-trust { color: #c5ded2; }
+.hero .btn:not(.light) { background: #8cf1be; border-color: #8cf1be; color: #103426; }
+.hero .btn:not(.light):hover { background: #b0f6d0; }
+.hero .btn.light { background: transparent; border-color: #6a9181; color: #fff; }
+.hero .btn.light:hover { background: #ffffff15; }
+.hero-glow { background: radial-gradient(circle, #72eab077, transparent 65%); }
+.hero-dashboard { color: #162b27; transform: none; box-shadow: 0 30px 75px #061d16a0; }
+.dash-side { background: #153d31; }
+.dash-side span { background: #527768; }
+.dash-side span:nth-child(1) { background: #82e9ba; }
+.workspace-section { background: #eef5ee; }
+.demo-shell { box-shadow: 0 24px 72px #113d2520; }
+#tourPanel { border-left: 3px solid var(--purple); margin-bottom: 16px; }
+#tourHint { margin-bottom: 0; }
+#onboardingProgress { font-weight: 700; color: var(--purple-d); }
+#interviewForm, #checkinHistory:not(:empty) { border-top: 1px solid var(--stroke); margin-top: 18px; padding-top: 16px; }
+[hidden] { display: none !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .btn { transition: none; }
+}
+
+.entry-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.entry-grid .card { padding: 26px; }
+.entry-grid h3 { font-size: 24px; }
+.entry-grid p { max-width: 40ch; }
+
+@media (max-width: 570px) {
+  .entry-grid { grid-template-columns: 1fr; }
+}
