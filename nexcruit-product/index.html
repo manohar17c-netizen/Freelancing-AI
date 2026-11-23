@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nexcruit Workspace</title>
+<link rel="stylesheet" href="/styles.css">
+<script src="/product/app.js" defer></script>
+</head>
+<body>
+<header class="site-header"><div class="container nav-inner"><a class="brand" href="/">Nexcruit</a><a href="/?mode=demo#experience">Guided demo</a></div></header>
+<main class="container section">
+ <div class="section-header"><h1>Nexcruit Workspace</h1><p>Track hiring, onboarding and employee check-ins. Use internal reference codes in this pilot.</p></div>
+ <form id="auth" class="card">
+  <h2>Sign in or create an account</h2>
+  <label class="field">Username <input name="username" required pattern="[A-Za-z0-9]{3,64}" autocomplete="username"></label>
+  <label class="field">Password <input name="password" type="password" required minlength="12" maxlength="128"></label>
+  <label class="field">Role for a new account <select name="role">
+   <option>job seeker</option><option>interviewee</option><option>interviewer</option><option>hiring expert</option>
+  </select></label>
+  <button class="btn" value="login">Sign in</button>
+  <button class="btn light" value="register">Create account</button>
+ </form>
+ <section id="workspace" hidden>
+  <div class="inline-head"><h2 id="roleHeading">Your workspace</h2><button id="logout" class="btn light">Sign out</button></div>
+  <section id="hiring"></section>
+  <section id="internalRecords" hidden>
+  <h2>Internal employee records</h2>
+  <form id="create" class="card">
+   <h3>New application record</h3>
+   <label class="field">Role <input name="role" required maxlength="120"></label>
+   <label class="field">Internal reference <input name="reference" required maxlength="32"></label>
+   <button class="btn">Add record</button>
+  </form>
+  <div id="records"></div>
+  </section>
+ </section>
+ <p id="status" role="status" aria-live="polite"></p>
+</main>
+</body>
+</html>
